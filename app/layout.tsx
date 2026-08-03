@@ -8,10 +8,11 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Troya ERP/MES',
   description: 'Sistema de producción Troya',
-}icons: {
-  icon: '/favicon.ico',
-  apple: '/apple-touch-icon.png',
-},
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/apple-touch-icon.png',
+  },
+}
 
 export default function RootLayout({
   children,
