@@ -205,13 +205,13 @@ export default function PlanTurnosPage() {
   })
 
   return (
-    <main className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-semibold text-slate-800 mb-1">Turnos y Operarios</h1>
+    <main className="p-4 md:p-6 max-w-6xl mx-auto">
+      <h1 className="text-xl md:text-2xl font-semibold text-slate-800 mb-1">Turnos y Operarios</h1>
       <p className="text-sm text-slate-500 mb-6">Asigná tareas diarias por operario y registrá lo realmente producido.</p>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-6">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
         <h2 className="font-semibold text-slate-700 mb-3">Operarios</h2>
-        <div className="flex gap-2 mb-3">
+        <div className="flex flex-col sm:flex-row gap-2 mb-3">
           <input placeholder="Nombre y apellido" value={newOperatorName} onChange={(e) => setNewOperatorName(e.target.value)}
             className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1" />
           <button onClick={addOperator} className="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700">
@@ -229,15 +229,15 @@ export default function PlanTurnosPage() {
       </div>
 
       <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm font-medium text-slate-700">Fecha a programar / cerrar</label>
+        <label className="text-sm font-medium text-slate-700">Fecha</label>
         <input type="date" value={planDate} onChange={(e) => { setPlanDate(e.target.value); setFOperator(''); setFOperatorSearch('') }}
           className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-6">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
         <h2 className="font-semibold text-slate-700 mb-3">Asignar tarea</h2>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-3">
           <div className="relative">
             <input
               placeholder="Buscar operario..."
@@ -262,12 +262,12 @@ export default function PlanTurnosPage() {
           </div>
 
           <div className="flex gap-1">
-            <input placeholder={`Horas disponibles el ${formatDateShort(planDate)}`} type="number" step={0.5} value={fAvailableHours}
+            <input placeholder={`Hs disponibles el ${formatDateShort(planDate)}`} type="number" step={0.5} value={fAvailableHours}
               onChange={(e) => setFAvailableHours(e.target.value)}
               disabled={!fOperator}
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 disabled:bg-slate-50" />
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 disabled:bg-slate-50 min-w-0" />
             <button onClick={saveAvailability} disabled={!fOperator}
-              className="text-xs bg-slate-700 text-white px-3 rounded-md hover:bg-slate-800 disabled:opacity-40">
+              className="text-xs bg-slate-700 text-white px-3 rounded-md hover:bg-slate-800 disabled:opacity-40 shrink-0">
               Guardar
             </button>
           </div>
@@ -275,13 +275,13 @@ export default function PlanTurnosPage() {
           {fOperator && (
             <div className="flex items-center text-sm">
               <span className={`font-medium ${availableForSelected != null && hoursSoFar > availableForSelected ? 'text-rose-600' : 'text-slate-700'}`}>
-                {hoursSoFar} / {availableForSelected ?? '—'} hs programadas ({formatDateShort(planDate)})
+                {hoursSoFar} / {availableForSelected ?? '—'} hs programadas
               </span>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-2">
           <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFOrder(''); setFComponent('') }}
             className="border border-slate-300 rounded-md px-2 py-1.5 text-sm truncate">
             <option value="">Sector...</option>
@@ -299,7 +299,7 @@ export default function PlanTurnosPage() {
               <option value="">Componente...</option>
               {rowsForOrderSector.map((r) => <option key={r.component_id} value={r.component_id}>{r.component_name}</option>)}
             </select>
-          ) : <div />}
+          ) : <div className="hidden md:block" />}
 
           <div>
             <input placeholder="Cantidad a programar" type="number" value={fQuantity}
@@ -322,7 +322,7 @@ export default function PlanTurnosPage() {
           </p>
         )}
 
-        <button onClick={addTask} className="mt-2 bg-emerald-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-emerald-700">
+        <button onClick={addTask} className="mt-2 w-full sm:w-auto bg-emerald-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-emerald-700">
           Asignar tarea
         </button>
       </div>
@@ -337,59 +337,60 @@ export default function PlanTurnosPage() {
             const avail = availability[group.id]
             return (
               <div key={name} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-semibold text-slate-700 truncate" title={name}>{name}</p>
-                  <p className={`text-xs shrink-0 ${avail != null && totalHours > avail ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-1">
+                  <p className="font-semibold text-slate-700" title={name}>{name}</p>
+                  <p className={`text-xs ${avail != null && totalHours > avail ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
                     {totalHours} / {avail ?? '—'} hs programadas
                   </p>
                 </div>
-                <table className="w-full text-sm table-fixed">
-                  <thead>
-                    <tr className="text-left text-slate-400 text-xs">
-                      <th className="py-1 w-[120px]">Sector</th>
-                      <th className="py-1">OP / Producto</th>
-                      <th className="py-1 text-center w-[65px]">Objetivo</th>
-                      <th className="py-1 text-center w-[65px]">Real</th>
-                      <th className="py-1 w-[160px]">Obs.</th>
-                      <th className="py-1 w-[55px]"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.tasks.map((t) => (
-                      <tr key={t.id} className="border-t border-slate-100 align-top">
-                        <td className="py-2">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</td>
-                        <td className="py-2 leading-tight">
-                          <div className="text-xs text-slate-400">#{t.orders?.order_number}</div>
-                          <div className="text-slate-700">{t.orders?.products?.name}</div>
-                        </td>
-                        <td className="py-2 text-center font-medium">{t.target_quantity}</td>
-                        <td className="py-2 text-center">
+
+                {/* Tarjetas de tarea — se acomodan solas en cualquier ancho de pantalla */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {group.tasks.map((t) => (
+                    <div key={t.id} className="border border-slate-200 rounded-lg p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-400">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
+                          <p className="text-sm font-medium text-slate-700 truncate" title={`#${t.orders?.order_number} — ${t.orders?.products?.name}`}>
+                            #{t.orders?.order_number} — {t.orders?.products?.name}
+                          </p>
+                        </div>
+                        <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                      </div>
+
+                      <div className="flex items-center gap-4 mb-2">
+                        <div>
+                          <p className="text-[10px] text-slate-400">Objetivo</p>
+                          <p className="text-sm font-semibold text-slate-700">{t.target_quantity}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">Hs</p>
+                          <p className="text-sm text-slate-600">{t.hours_assigned}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">Real</p>
                           <input
                             type="number"
                             defaultValue={t.actual_quantity ?? ''}
                             placeholder="—"
                             onBlur={(e) => saveActual(t.id, e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-16 text-center rounded-md border border-slate-300 py-1"
+                            className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
                           />
-                        </td>
-                        <td className="py-2">
-                          <input
-                            type="text"
-                            defaultValue={t.notes ?? ''}
-                            placeholder="Ej: reunión 20 min"
-                            onBlur={(e) => saveNotes(t.id, e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-full rounded-md border border-slate-300 py-1 px-2 text-xs"
-                          />
-                        </td>
-                        <td className="py-2 text-right">
-                          <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline">Eliminar</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </div>
+                      </div>
+
+                      <input
+                        type="text"
+                        defaultValue={t.notes ?? ''}
+                        placeholder="Obs. (ej: reunión 20 min)"
+                        onBlur={(e) => saveNotes(t.id, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                        className="w-full rounded-md border border-slate-300 py-1.5 px-2 text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             )
           })}

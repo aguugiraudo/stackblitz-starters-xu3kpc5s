@@ -108,7 +108,6 @@ export default function PlanDiarioPage() {
     return { progPct, realPct, cumplimiento }
   }
 
-  // Cumplimiento de TODA la planta ese día (independiente de cada OP en particular)
   function plantDayResult(date: string) {
     const dayTasks = tasks.filter((t) => t.plan_date === date)
     if (dayTasks.length === 0) return null
@@ -198,17 +197,17 @@ export default function PlanDiarioPage() {
               </tr>
             </thead>
             <tbody>
-              {/* Fila fija: cumplimiento general de toda la planta ese día */}
-              <tr className="bg-blue-50 border-t-2 border-b-2 border-blue-200">
-                <td className="p-2 font-semibold text-blue-800">Cumplimiento de planta</td>
+              {/* Fila fija: cumplimiento general de toda la planta ese día — estilo discreto, sin color propio */}
+              <tr className="bg-slate-50 border-t-2 border-b-2 border-slate-200">
+                <td className="p-2 font-semibold text-slate-600 text-xs">Cumplimiento de planta</td>
                 {dates.map((d) => {
                   const r = plantDayResult(d)
                   const isToday = d === todayISO
                   return (
-                    <td key={d} className={`p-0 border-l border-blue-100 ${isToday ? 'bg-blue-100/60' : ''}`}>
+                    <td key={d} className={`p-0 border-l border-slate-200 ${isToday ? 'bg-slate-100' : ''}`}>
                       <div className="grid grid-cols-3">
-                        <span className="text-center py-2 text-blue-700 text-xs">{r ? `${r.progHoras}h` : '—'}</span>
-                        <span className="text-center py-2 text-blue-700 text-xs">{r?.realHoras != null ? `${r.realHoras}h` : '—'}</span>
+                        <span className="text-center py-2 text-slate-500 text-xs">{r ? `${r.progHoras}h` : '—'}</span>
+                        <span className="text-center py-2 text-slate-500 text-xs">{r?.realHoras != null ? `${r.realHoras}h` : '—'}</span>
                         <span className={`text-center py-2 text-xs ${cumplimientoColor(r?.cumplimiento ?? null)}`}>
                           {r?.cumplimiento != null ? `${r.cumplimiento}%` : '—'}
                         </span>
