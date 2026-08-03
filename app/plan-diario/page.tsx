@@ -108,6 +108,22 @@ export default function PlanDiarioPage() {
     return { progPct, realPct, cumplimiento }
   }
 
+  // Cumplimiento de TODA la planta ese día (independiente de cada OP en particular)
+  function plantDayResult(date: string) {
+    const dayTasks = tasks.filter((t) => t.plan_date === date)
+    if (dayTasks.length === 0) return null
+
+    const progMinutes = dayTasks.reduce((sum, t) => sum + t.target_quantity * (t.standard_time_minutes || 0), 0)
+    const hasAnyActual = dayTasks.some((t) => t.actual_quantity != null)
+    const realMinutes = dayTasks.reduce((sum, t) => sum + (t.actual_quantity != null ? t.actual_quantity * (t.standard_time_minutes || 0) : 0), 0)
+
+    const progHoras = Math.round((progMinutes / 60) * 10) / 10
+    const realHoras = hasAnyActual ? Math.round((realMinutes / 60) * 10) / 10 : null
+    const cumplimiento = hasAnyActual && progMinutes > 0 ? Math.round((realMinutes / progMinutes) * 1000) / 10 : null
+
+    return { progHoras, realHoras, cumplimiento }
+  }
+
   function cumplimientoColor(c: number | null) {
     if (c == null) return 'text-slate-300'
     if (c >= 100) return 'text-emerald-600 font-semibold'
@@ -122,7 +138,7 @@ export default function PlanDiarioPage() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Plan Diario</h1>
       <p className="text-sm text-slate-500 mb-4">Objetivo programado vs. producción real, por orden y por día.</p>
 
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
         <button onClick={() => setWeekOffset((w) => w - 1)} className="text-sm px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50">
           ← Semana anterior
         </button>
@@ -157,7 +173,7 @@ export default function PlanDiarioPage() {
                   return (
                     <th key={d} className={`p-2 font-medium text-center border-l ${
                       d === satDate ? 'bg-amber-900/40 border-amber-700' :
-                      isToday ? 'bg-blue-800 border-blue-600' : 'border-slate-700'
+                      isToday ? 'bg-slate-700 border-slate-600' : 'border-slate-700'
                     }`}>
                       {i < 5 ? DAY_NAMES[i] : 'Sábado extra'}
                       <div className="text-[10px] font-normal text-slate-300">{shortDate(d)}{isToday ? ' • hoy' : ''}</div>
@@ -170,7 +186,7 @@ export default function PlanDiarioPage() {
                 {dates.map((d) => {
                   const isToday = d === todayISO
                   return (
-                    <th key={d} className={`p-0 border-l ${d === satDate ? 'border-amber-700' : isToday ? 'border-blue-600' : 'border-slate-700'}`}>
+                    <th key={d} className={`p-0 border-l ${d === satDate ? 'border-amber-700' : isToday ? 'border-slate-600' : 'border-slate-700'}`}>
                       <div className="grid grid-cols-3">
                         <span className="text-center py-1">Obj.</span>
                         <span className="text-center py-1">Real</span>
@@ -182,6 +198,26 @@ export default function PlanDiarioPage() {
               </tr>
             </thead>
             <tbody>
+              {/* Fila fija: cumplimiento general de toda la planta ese día */}
+              <tr className="bg-blue-50 border-t-2 border-b-2 border-blue-200">
+                <td className="p-2 font-semibold text-blue-800">Cumplimiento de planta</td>
+                {dates.map((d) => {
+                  const r = plantDayResult(d)
+                  const isToday = d === todayISO
+                  return (
+                    <td key={d} className={`p-0 border-l border-blue-100 ${isToday ? 'bg-blue-100/60' : ''}`}>
+                      <div className="grid grid-cols-3">
+                        <span className="text-center py-2 text-blue-700 text-xs">{r ? `${r.progHoras}h` : '—'}</span>
+                        <span className="text-center py-2 text-blue-700 text-xs">{r?.realHoras != null ? `${r.realHoras}h` : '—'}</span>
+                        <span className={`text-center py-2 text-xs ${cumplimientoColor(r?.cumplimiento ?? null)}`}>
+                          {r?.cumplimiento != null ? `${r.cumplimiento}%` : '—'}
+                        </span>
+                      </div>
+                    </td>
+                  )
+                })}
+              </tr>
+
               {orders.map((order) => (
                 <tr key={order.id} className="border-t border-slate-100">
                   <td className="p-2 leading-tight">
@@ -194,7 +230,7 @@ export default function PlanDiarioPage() {
                     return (
                       <td key={d} className={`p-0 border-l ${
                         d === satDate ? 'border-amber-100 bg-amber-50/40' :
-                        isToday ? 'border-blue-100 bg-blue-50/50' : 'border-slate-100'
+                        isToday ? 'border-slate-100 bg-slate-50/60' : 'border-slate-100'
                       }`}>
                         <div className="grid grid-cols-3">
                           <span className="text-center py-2 text-slate-600 text-xs">{r ? `${r.progPct}%` : '—'}</span>

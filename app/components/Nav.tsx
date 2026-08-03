@@ -1,4 +1,5 @@
 'use client'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -15,26 +16,63 @@ const tabs = [
 
 export default function Nav() {
   const pathname = usePathname()
+  const [open, setOpen] = useState(false)
+
   return (
-    <nav style={{
-      display: 'flex', gap: '1.5rem', alignItems: 'center',
-      padding: '1rem 2rem', background: '#0f172a', flexWrap: 'wrap'
-    }}>
-      <span style={{ color: '#ef4444', fontWeight: 'bold', marginRight: '1rem' }}>TROYA</span>
-      {tabs.map((t) => (
-        <Link
-          key={t.href}
-          href={t.href}
-          style={{
-            color: pathname === t.href ? '#facc15' : 'white',
-            fontWeight: pathname === t.href ? 'bold' : 'normal',
-            textDecoration: 'none',
-            fontSize: '0.9rem',
-          }}
+    <nav className="bg-slate-900 sticky top-0 z-40">
+      <div className="flex items-center justify-between px-4 md:px-6 h-14">
+        <span className="text-red-500 font-bold tracking-wide">TROYA</span>
+
+        {/* Menú desktop */}
+        <div className="hidden md:flex items-center gap-5 overflow-x-auto">
+          {tabs.map((t) => {
+            const active = pathname === t.href
+            return (
+              <Link
+                key={t.href}
+                href={t.href}
+                className={`text-sm whitespace-nowrap pb-1 border-b-2 transition ${
+                  active
+                    ? 'text-white font-medium border-blue-400'
+                    : 'text-slate-400 border-transparent hover:text-slate-200'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          })}
+        </div>
+
+        {/* Botón hamburguesa (solo celular) */}
+        <button
+          onClick={() => setOpen(!open)}
+          className="md:hidden text-slate-300 p-2"
+          aria-label="Abrir menú"
         >
-          {t.label}
-        </Link>
-      ))}
+          {open ? '✕' : '☰'}
+        </button>
+      </div>
+
+      {/* Menú desplegable en celular */}
+      {open && (
+        <div className="md:hidden bg-slate-800 border-t border-slate-700 px-4 py-2">
+          {tabs.map((t) => {
+            const active = pathname === t.href
+            return (
+              <Link
+                key={t.href}
+                href={t.href}
+                onClick={() => setOpen(false)}
+                className={`block py-2.5 text-sm border-b border-slate-700 last:border-0 ${
+                  active ? 'text-white font-medium' : 'text-slate-300'
+                }`}
+              >
+                {t.label}
+              </Link>
+            )
+          })}
+        </div>
+      )}
     </nav>
   )
 }

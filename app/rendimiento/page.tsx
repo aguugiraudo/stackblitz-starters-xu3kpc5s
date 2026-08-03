@@ -408,7 +408,7 @@ export default function RendimientoPage() {
         </div>
       )}
 
-      {/* MODAL: detalle de un día puntual (Programado vs Real) */}
+      {/* MODAL: detalle de un día puntual (Programado vs Real + resumen de horas/cumplimiento) */}
       {dayModalInfo && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setDayModalInfo(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
@@ -423,24 +423,48 @@ export default function RendimientoPage() {
             {dayModalTasks.length === 0 ? (
               <p className="text-sm text-slate-400">Sin tareas asignadas este día.</p>
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto">
-                {dayModalTasks.map((t: any) => {
-                  const met = t.actual_quantity != null && t.actual_quantity >= t.target_quantity
+              <>
+                {(() => {
+                  const hoursAssigned = dayModalTasks.reduce((s: number, t: any) => s + Number(t.hours_assigned || 0), 0)
+                  const targetMin = dayModalTasks.reduce((s: number, t: any) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
+                  const anyPending = dayModalTasks.some((t: any) => t.actual_quantity == null)
+                  const realMin = dayModalTasks.reduce((s: number, t: any) => s + (t.actual_quantity != null ? t.actual_quantity * (t.standard_time_minutes || 0) : 0), 0)
+                  const cumplimiento = !anyPending && targetMin > 0 ? Math.round((realMin / targetMin) * 1000) / 10 : null
                   return (
-                    <div key={t.id} className="border border-slate-200 rounded-lg p-3">
-                      <p className="text-xs text-slate-400">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
-                      <p className="text-sm text-slate-700 font-medium">#{t.orders?.order_number} — {t.orders?.products?.name}</p>
-                      <div className="flex items-center gap-4 mt-2 text-sm">
-                        <span className="text-slate-500">Programado: <strong className="text-slate-700">{t.target_quantity}</strong></span>
-                        <span className="text-slate-500">Real: <strong className={t.actual_quantity == null ? 'text-amber-600' : met ? 'text-emerald-600' : 'text-rose-600'}>
-                          {t.actual_quantity != null ? t.actual_quantity : 'sin cerrar'}
-                        </strong></span>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">Horas programadas</p>
+                        <p className="text-lg font-semibold text-slate-700">{hoursAssigned}</p>
                       </div>
-                      {t.notes && <p className="text-xs text-slate-500 italic mt-2">"{t.notes}"</p>}
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">Cumplimiento del día</p>
+                        <p className={`text-lg font-semibold ${cumplimiento == null ? 'text-slate-400' : cumplimiento >= 100 ? 'text-emerald-600' : cumplimiento >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
+                          {cumplimiento != null ? `${cumplimiento}%` : 'sin cerrar'}
+                        </p>
+                      </div>
                     </div>
                   )
-                })}
-              </div>
+                })()}
+
+                <div className="space-y-3 max-h-72 overflow-y-auto">
+                  {dayModalTasks.map((t: any) => {
+                    const met = t.actual_quantity != null && t.actual_quantity >= t.target_quantity
+                    return (
+                      <div key={t.id} className="border border-slate-200 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
+                        <p className="text-sm text-slate-700 font-medium">#{t.orders?.order_number} — {t.orders?.products?.name}</p>
+                        <div className="flex items-center gap-4 mt-2 text-sm">
+                          <span className="text-slate-500">Programado: <strong className="text-slate-700">{t.target_quantity}</strong></span>
+                          <span className="text-slate-500">Real: <strong className={t.actual_quantity == null ? 'text-amber-600' : met ? 'text-emerald-600' : 'text-rose-600'}>
+                            {t.actual_quantity != null ? t.actual_quantity : 'sin cerrar'}
+                          </strong></span>
+                        </div>
+                        {t.notes && <p className="text-xs text-slate-500 italic mt-2">"{t.notes}"</p>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
 
             <button onClick={() => setDayModalInfo(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
