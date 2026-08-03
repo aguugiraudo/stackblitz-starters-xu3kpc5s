@@ -32,6 +32,8 @@ export default function CatalogoProductosPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
 
+  const [timeHistoryModal, setTimeHistoryModal] = useState<{ catalogTimeId: string; entries: any[] } | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   async function fetchOverview() {
@@ -162,6 +164,15 @@ export default function CatalogoProductosPage() {
     fetchProductDetail(selectedProduct.id)
   }
 
+  async function openTimeHistory(catalogTimeId: string) {
+    const { data } = await supabase
+      .from('standard_time_updates')
+      .select('*, operators(full_name)')
+      .eq('catalog_time_id', catalogTimeId)
+      .order('created_at', { ascending: false })
+    setTimeHistoryModal({ catalogTimeId, entries: data || [] })
+  }
+
   const matrixByProduct: Record<string, Record<string, number | null>> = {}
   matrix.forEach((row) => {
     if (!matrixByProduct[row.product_id]) matrixByProduct[row.product_id] = {}
@@ -264,14 +275,19 @@ export default function CatalogoProductosPage() {
                           <span className="text-slate-400 font-normal"> ({compRows.length} componentes)</span>
                         </span>
                       ) : productRow ? (
-                        <div className="flex items-center justify-center gap-1">
-                          <input
-                            type="number"
-                            defaultValue={productRow.standard_time_minutes}
-                            onBlur={(e) => saveProductTime(sector.id, productRow.id, parseFloat(e.target.value || '0'))}
-                            className="w-20 text-center rounded-md border border-slate-300 py-1"
-                          />
-                          <span className="text-xs text-slate-400">min</span>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              defaultValue={productRow.standard_time_minutes}
+                              onBlur={(e) => saveProductTime(sector.id, productRow.id, parseFloat(e.target.value || '0'))}
+                              className="w-20 text-center rounded-md border border-slate-300 py-1"
+                            />
+                            <span className="text-xs text-slate-400">min</span>
+                          </div>
+                          <button onClick={() => openTimeHistory(productRow.id)} className="text-[10px] text-blue-500 underline">
+                            ver historial
+                          </button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center gap-1">
@@ -304,7 +320,6 @@ export default function CatalogoProductosPage() {
             </tbody>
           </table>
 
-          {/* Zona de peligro, separada visualmente y al final */}
           <div className="mt-8 pt-4 border-t border-dashed border-rose-200">
             <p className="text-xs text-rose-400 mb-2">Zona de peligro</p>
             <button onClick={openDeleteModal} className="text-xs text-rose-500 border border-rose-200 px-3 py-1.5 rounded-md hover:bg-rose-50">
@@ -371,14 +386,19 @@ export default function CatalogoProductosPage() {
                         />
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        defaultValue={t.standard_time_minutes}
-                        onBlur={(e) => saveComponentTime(t.id, parseFloat(e.target.value || '0'))}
-                        className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
-                      />
-                      <span className="text-xs text-slate-400">min</span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          defaultValue={t.standard_time_minutes}
+                          onBlur={(e) => saveComponentTime(t.id, parseFloat(e.target.value || '0'))}
+                          className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
+                        />
+                        <span className="text-xs text-slate-400">min</span>
+                      </div>
+                      <button onClick={() => openTimeHistory(t.id)} className="text-[10px] text-blue-500 underline">
+                        ver historial
+                      </button>
                     </div>
                   </div>
                 )
@@ -407,7 +427,6 @@ export default function CatalogoProductosPage() {
         </div>
       )}
 
-      {/* MODAL de eliminación seria: hay que escribir el nombre exacto */}
       {showDeleteModal && selectedProduct && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 border-2 border-rose-200">
@@ -437,6 +456,33 @@ export default function CatalogoProductosPage() {
                 Eliminar definitivamente
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {timeHistoryModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setTimeHistoryModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="font-semibold text-slate-800">Historial de este tiempo</h3>
+              <button onClick={() => setTimeHistoryModal(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+            </div>
+            {timeHistoryModal.entries.length === 0 ? (
+              <p className="text-sm text-slate-400">Todavía no hubo actualizaciones para este tiempo.</p>
+            ) : (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {timeHistoryModal.entries.map((e: any) => (
+                  <div key={e.id} className="border-b border-slate-100 pb-2 text-sm">
+                    <p className="text-slate-700">
+                      {e.old_minutes} min → <strong className="text-emerald-700">{e.new_minutes} min</strong>
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {e.operators?.full_name} — {new Date(e.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

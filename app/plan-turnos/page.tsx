@@ -37,6 +37,11 @@ export default function PlanTurnosPage() {
   const [fComponent, setFComponent] = useState('')
   const [fQuantity, setFQuantity] = useState('')
 
+  const [clockTask, setClockTask] = useState<any | null>(null)
+  const [clockStart, setClockStart] = useState('')
+  const [clockEnd, setClockEnd] = useState('')
+  const [clockResult, setClockResult] = useState<{ type: 'ok' | 'more' | 'less'; diffPerUnit: number; newMinutes: number } | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   async function fetchStatic() {
@@ -172,6 +177,7 @@ export default function PlanTurnosPage() {
       hours_assigned: taskHours ?? 0,
       target_quantity: qty,
       standard_time_minutes: selectedRow?.standard_time_minutes ?? null,
+      catalog_time_id: selectedRow?.catalog_time_id ?? null,
     })
     if (error) { alert('Error al asignar la tarea: ' + error.message); return }
     setFSector(''); setFOrder(''); setFComponent(''); setFQuantity('')
@@ -195,6 +201,82 @@ export default function PlanTurnosPage() {
     fetchTasksAndAvailability(); fetchStatic()
   }
 
+  function openClock(task: any) {
+    setClockTask(task)
+    setClockStart(task.actual_start_time ? task.actual_start_time.slice(0, 5) : '')
+    setClockEnd(task.actual_end_time ? task.actual_end_time.slice(0, 5) : '')
+    setClockResult(null)
+  }
+
+  function closeClock() {
+    setClockTask(null)
+    setClockResult(null)
+  }
+
+  async function computeClock() {
+    if (!clockTask || !clockStart || !clockEnd) {
+      alert('Completá hora de inicio y hora de fin.')
+      return
+    }
+    if (clockTask.actual_quantity == null || clockTask.actual_quantity <= 0) {
+      alert('Primero cargá la cantidad Real de esta tarea.')
+      return
+    }
+    const [sh, sm] = clockStart.split(':').map(Number)
+    const [eh, em] = clockEnd.split(':').map(Number)
+    const startMin = sh * 60 + sm
+    const endMin = eh * 60 + em
+    const duration = endMin - startMin
+    if (duration <= 0) {
+      alert('La hora de fin debe ser posterior a la de inicio.')
+      return
+    }
+
+    await supabase.from('operator_daily_tasks').update({
+      actual_start_time: clockStart, actual_end_time: clockEnd,
+    }).eq('id', clockTask.id)
+
+    const perUnit = duration / clockTask.actual_quantity
+    const standard = clockTask.standard_time_minutes || 0
+    const diff = perUnit - standard
+    const tolerance = Math.max(0.3, standard * 0.05) // margen chico para no marcar ruido
+
+    if (Math.abs(diff) <= tolerance) {
+      setClockResult({ type: 'ok', diffPerUnit: 0, newMinutes: perUnit })
+    } else if (diff > 0) {
+      setClockResult({ type: 'more', diffPerUnit: Math.round(diff * 10) / 10, newMinutes: Math.round(perUnit * 10) / 10 })
+    } else {
+      setClockResult({ type: 'less', diffPerUnit: Math.round(Math.abs(diff) * 10) / 10, newMinutes: Math.round(perUnit * 10) / 10 })
+    }
+
+    fetchTasksAndAvailability()
+  }
+
+  async function confirmTimeUpdate() {
+    if (!clockTask || !clockResult || !clockTask.catalog_time_id) {
+      alert('No se pudo identificar el tiempo estándar a actualizar.')
+      return
+    }
+    const oldMinutes = clockTask.standard_time_minutes
+    const newMinutes = clockResult.newMinutes
+
+    const { error: e1 } = await supabase.from('catalog_times')
+      .update({ standard_time_minutes: newMinutes })
+      .eq('id', clockTask.catalog_time_id)
+    if (e1) { alert('Error al actualizar el tiempo: ' + e1.message); return }
+
+    await supabase.from('standard_time_updates').insert({
+      catalog_time_id: clockTask.catalog_time_id,
+      task_id: clockTask.id,
+      operator_id: clockTask.operator_id,
+      old_minutes: oldMinutes,
+      new_minutes: newMinutes,
+    })
+
+    closeClock()
+    fetchStatic(); fetchTasksAndAvailability()
+  }
+
   if (loading) return <main className="p-6 text-slate-500">Cargando...</main>
 
   const tasksByOperator: Record<string, { id: string; tasks: any[] }> = {}
@@ -203,6 +285,13 @@ export default function PlanTurnosPage() {
     if (!tasksByOperator[name]) tasksByOperator[name] = { id: t.operator_id, tasks: [] }
     tasksByOperator[name].tasks.push(t)
   })
+
+  const ClockButton = ({ t }: { t: any }) => (
+    <button onClick={() => openClock(t)} title="Registrar hora de inicio/fin"
+      className={`text-sm ${t.actual_start_time ? 'text-blue-600' : 'text-slate-300 hover:text-slate-500'}`}>
+      🕐
+    </button>
+  )
 
   return (
     <main className="p-4 md:p-6 max-w-6xl mx-auto overflow-x-hidden">
@@ -344,15 +433,15 @@ export default function PlanTurnosPage() {
                   </p>
                 </div>
 
-                {/* ===== VERSIÓN PC: tabla (visible desde md hacia arriba) ===== */}
+                {/* ===== VERSIÓN PC ===== */}
                 <table className="w-full text-sm table-fixed hidden md:table">
                   <thead>
                     <tr className="text-left text-slate-400 text-xs">
                       <th className="py-1 w-[120px]">Sector</th>
                       <th className="py-1">OP / Producto</th>
                       <th className="py-1 text-center w-[65px]">Objetivo</th>
-                      <th className="py-1 text-center w-[65px]">Real</th>
-                      <th className="py-1 w-[160px]">Obs.</th>
+                      <th className="py-1 text-center w-[80px]">Real</th>
+                      <th className="py-1 w-[150px]">Obs.</th>
                       <th className="py-1 w-[55px]"></th>
                     </tr>
                   </thead>
@@ -366,14 +455,17 @@ export default function PlanTurnosPage() {
                         </td>
                         <td className="py-2 text-center font-medium">{t.target_quantity}</td>
                         <td className="py-2 text-center">
-                          <input
-                            type="number"
-                            defaultValue={t.actual_quantity ?? ''}
-                            placeholder="—"
-                            onBlur={(e) => saveActual(t.id, e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-16 text-center rounded-md border border-slate-300 py-1"
-                          />
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              defaultValue={t.actual_quantity ?? ''}
+                              placeholder="—"
+                              onBlur={(e) => saveActual(t.id, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                              className="w-14 text-center rounded-md border border-slate-300 py-1"
+                            />
+                            <ClockButton t={t} />
+                          </div>
                         </td>
                         <td className="py-2">
                           <input
@@ -393,7 +485,7 @@ export default function PlanTurnosPage() {
                   </tbody>
                 </table>
 
-                {/* ===== VERSIÓN CELULAR: tarjetas apiladas, una sola columna ===== */}
+                {/* ===== VERSIÓN CELULAR ===== */}
                 <div className="md:hidden flex flex-col gap-3">
                   {group.tasks.map((t) => (
                     <div key={t.id} className="border border-slate-200 rounded-lg p-3 min-w-0">
@@ -414,14 +506,17 @@ export default function PlanTurnosPage() {
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-400">Real</p>
-                          <input
-                            type="number"
-                            defaultValue={t.actual_quantity ?? ''}
-                            placeholder="—"
-                            onBlur={(e) => saveActual(t.id, e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
-                          />
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              defaultValue={t.actual_quantity ?? ''}
+                              placeholder="—"
+                              onBlur={(e) => saveActual(t.id, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                              className="w-14 text-center rounded-md border border-slate-300 py-1 text-sm"
+                            />
+                            <ClockButton t={t} />
+                          </div>
                         </div>
                       </div>
 
@@ -439,6 +534,72 @@ export default function PlanTurnosPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* MODAL del reloj */}
+      {clockTask && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={closeClock}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800">Registrar horario</h3>
+                <p className="text-xs text-slate-500">{clockTask.sectors?.name}{clockTask.components?.name ? ` — ${clockTask.components.name}` : ''}</p>
+              </div>
+              <button onClick={closeClock} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+            </div>
+
+            {!clockResult ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <label className="text-xs text-slate-500">Hora inicio</label>
+                    <input type="time" value={clockStart} onChange={(e) => setClockStart(e.target.value)}
+                      className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Hora fin</label>
+                    <input type="time" value={clockEnd} onChange={(e) => setClockEnd(e.target.value)}
+                      className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full" />
+                  </div>
+                </div>
+                <button onClick={computeClock} className="w-full bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700">
+                  Calcular
+                </button>
+              </>
+            ) : clockResult.type === 'ok' ? (
+              <div className="text-center">
+                <p className="text-sm text-slate-600 mb-4">El tiempo real está en línea con el tiempo estándar. Sin novedad.</p>
+                <button onClick={closeClock} className="w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
+                  Cerrar
+                </button>
+              </div>
+            ) : clockResult.type === 'more' ? (
+              <div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+                  Tardó <strong>{clockResult.diffPerUnit} min más</strong> por pieza de lo estimado.
+                </div>
+                <button onClick={closeClock} className="w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
+                  Cerrar
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-sm text-emerald-800">
+                  {clockTask.operators?.full_name} tardó <strong>{clockResult.diffPerUnit} min menos</strong> por pieza de lo registrado.
+                  ¿Actualizar el tiempo estándar a {clockResult.newMinutes} min?
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={closeClock} className="flex-1 border border-slate-300 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50">
+                    No, dejar igual
+                  </button>
+                  <button onClick={confirmTimeUpdate} className="flex-1 bg-emerald-600 text-white rounded-md py-2 text-sm font-medium hover:bg-emerald-700">
+                    Sí, actualizar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </main>
