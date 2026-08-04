@@ -13,6 +13,7 @@ const tabs = [
   { href: '/rendimiento', label: 'Rendimiento de Operarios' },
   { href: '/historial', label: 'Historial de Órdenes' },
   { href: '/base-datos', label: 'Catálogo de Productos' },
+  { href: '/dashboard', label: 'Dashboard' },
 ]
 
 export default function Nav() {

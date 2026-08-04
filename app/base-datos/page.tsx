@@ -114,6 +114,19 @@ export default function CatalogoProductosPage() {
     fetchOverview()
   }
 
+  async function saveCategory(value: string) {
+    if (!selectedProduct) return
+    await supabase.from('products').update({ category: value || 'OTROS' }).eq('id', selectedProduct.id)
+    setSelectedProduct({ ...selectedProduct, category: value || 'OTROS' })
+  }
+
+  async function savePrice(value: string) {
+    if (!selectedProduct) return
+    const val = value ? parseFloat(value) : null
+    await supabase.from('products').update({ price: val }).eq('id', selectedProduct.id)
+    setSelectedProduct({ ...selectedProduct, price: val })
+  }
+
   function sectorInfo(sectorId: string) {
     const productRow = productTimes.find((t) => t.sector_id === sectorId)
     const compRows = componentTimes.filter((t) => t.sector_id === sectorId)
@@ -246,6 +259,28 @@ export default function CatalogoProductosPage() {
           </div>
           <h2 className="font-semibold text-slate-700 mt-2 mb-1">{selectedProduct.name}</h2>
           <p className="text-xs text-slate-400 mb-4">Código: {selectedProduct.code}</p>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="text-xs text-slate-500">Categoría</label>
+              <input
+                defaultValue={selectedProduct.category || ''}
+                onBlur={(e) => saveCategory(e.target.value)}
+                placeholder="Ej: FOGONEROS"
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Precio</label>
+              <input
+                type="number"
+                defaultValue={selectedProduct.price ?? ''}
+                onBlur={(e) => savePrice(e.target.value)}
+                placeholder="Sin definir"
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
+              />
+            </div>
+          </div>
 
           <table className="w-full text-sm">
             <thead>
