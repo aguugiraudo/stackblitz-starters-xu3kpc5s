@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 
 const tabs = [
@@ -21,9 +22,10 @@ export default function Nav() {
   return (
     <nav className="bg-slate-900 sticky top-0 z-40">
       <div className="flex items-center justify-between px-4 md:px-6 h-14">
-        <span className="text-red-500 font-bold tracking-wide">TROYA</span>
+        <Link href="/" className="shrink-0 flex items-center">
+          <Image src="/logo_troya_white.png" alt="Troya" width={110} height={39} className="h-7 w-auto" priority />
+        </Link>
 
-        {/* Menú desktop */}
         <div className="hidden md:flex items-center gap-5 overflow-x-auto">
           {tabs.map((t) => {
             const active = pathname === t.href
@@ -43,7 +45,6 @@ export default function Nav() {
           })}
         </div>
 
-        {/* Botón hamburguesa (solo celular) */}
         <button
           onClick={() => setOpen(!open)}
           className="md:hidden text-slate-300 p-2"
@@ -53,7 +54,6 @@ export default function Nav() {
         </button>
       </div>
 
-      {/* Menú desplegable en celular */}
       {open && (
         <div className="md:hidden bg-slate-800 border-t border-slate-700 px-4 py-2">
           {tabs.map((t) => {
