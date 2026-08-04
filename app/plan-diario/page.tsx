@@ -63,18 +63,31 @@ export default function PlanDiarioPage() {
       .lte('plan_date', satDate)
     setTasks(taskData || [])
 
-    // Trae cualquier OP que haya tenido tareas programadas esta semana,
-    // esté activa o ya completada — así no desaparece de la vista al cerrarse.
-    const orderIdsWithTasks = Array.from(new Set((taskData || []).map((t: any) => t.order_id)))
-    const { data: ordersData } = orderIdsWithTasks.length > 0
-      ? await supabase
-          .from('orders')
-          .select('id, order_number, status, products(name)')
-          .in('id', orderIdsWithTasks)
-      : { data: [] }
-    setOrders(ordersData || [])
+    // Todas las OPs activas (tengan o no programación esta semana)
+    const { data: activeOrders } = await supabase
+      .from('orders')
+      .select('id, order_number, status, products(name)')
+      .in('status', ['pending', 'in_progress'])
+      .order('priority_rank', { ascending: true, nullsFirst: false })
 
-    const orderIds = (ordersData || []).map((o: any) => o.id)
+    // + las que ya se completaron pero tuvieron actividad esta semana en particular
+    const orderIdsWithTasks = Array.from(new Set((taskData || []).map((t: any) => t.order_id)))
+    const activeIds = new Set((activeOrders || []).map((o: any) => o.id))
+    const missingIds = orderIdsWithTasks.filter((id) => !activeIds.has(id))
+
+    let completedWithTasks: any[] = []
+    if (missingIds.length > 0) {
+      const { data } = await supabase
+        .from('orders')
+        .select('id, order_number, status, products(name)')
+        .in('id', missingIds)
+      completedWithTasks = data || []
+    }
+
+    const allOrders = [...(activeOrders || []), ...completedWithTasks]
+    setOrders(allOrders)
+
+    const orderIds = allOrders.map((o: any) => o.id)
     if (orderIds.length > 0) {
       const { data: progressData } = await supabase
         .from('order_progress_detail')
@@ -160,7 +173,7 @@ export default function PlanDiarioPage() {
       </div>
 
       {orders.length === 0 ? (
-        <p className="text-slate-500">No hay tareas programadas para esta semana todavía.</p>
+        <p className="text-slate-500">No hay órdenes activas todavía.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
           <table className="text-sm border-collapse table-fixed w-full">
