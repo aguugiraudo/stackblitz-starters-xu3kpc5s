@@ -6,7 +6,7 @@ import Nav from './components/Nav'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Troya ERP/MES',
+  title: 'TROYA Gestión',
   description: 'Sistema de producción Troya',
   icons: {
     icon: '/favicon.ico',
