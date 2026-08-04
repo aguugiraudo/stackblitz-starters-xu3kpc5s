@@ -124,6 +124,12 @@ export default function PlanDiarioPage() {
   const hasSaturdayTasks = tasks.some((t) => t.plan_date === satDate)
   const dates = hasSaturdayTasks ? [...weekdayDates, satDate] : weekdayDates
 
+  function maxTaskDateFor(orderId: string) {
+    const all = allTasksByOrder[orderId] || []
+    if (all.length === 0) return null
+    return all.reduce((max, t) => (t.plan_date > max ? t.plan_date : max), all[0].plan_date)
+  }
+
   function cumulativeUpTo(orderId: string, date: string, inclusive: boolean) {
     const totalWeight = weightByOrder[orderId]
     const all = allTasksByOrder[orderId] || []
@@ -142,6 +148,10 @@ export default function PlanDiarioPage() {
   }
 
   function dayResult(orderId: string, date: string) {
+    // No mostrar nada más allá de la última fecha con una tarea real cargada para esta OP
+    const maxTaskDate = maxTaskDateFor(orderId)
+    if (!maxTaskDate || date > maxTaskDate) return null
+
     const upToToday = cumulativeUpTo(orderId, date, true)
     if (!upToToday.hasAny) return null
 
