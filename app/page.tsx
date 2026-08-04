@@ -50,6 +50,8 @@ export default function Home() {
   const [editClientName, setEditClientName] = useState('')
   const [editNotes, setEditNotes] = useState('')
 
+  const [pendingManualComplete, setPendingManualComplete] = useState<{ id: string; order_number: string; avance: number | null } | null>(null)
+
   const sensors = useSensors(useSensor(PointerSensor))
 
   async function fetchAll() {
@@ -109,10 +111,27 @@ export default function Home() {
     }
   }
 
-  async function handleComplete(orderId: string) {
+  // Ahora, en vez de completar directo, abre el cartel de confirmación
+  async function askComplete(order: any) {
+    const { data } = await supabase
+      .from('order_weighted_progress')
+      .select('avance_percent')
+      .eq('order_id', order.id)
+      .maybeSingle()
+    setPendingManualComplete({
+      id: order.id,
+      order_number: order.order_number,
+      avance: data?.avance_percent ?? null,
+    })
+  }
+
+  async function confirmManualComplete() {
+    if (!pendingManualComplete) return
     const { error } = await supabase.from('orders')
-      .update({ status: 'completed', completed_at: new Date().toISOString() }).eq('id', orderId)
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', pendingManualComplete.id)
     if (error) { alert('Error al completar la OP: ' + error.message); return }
+    setPendingManualComplete(null)
     fetchAll()
   }
 
@@ -201,7 +220,7 @@ export default function Home() {
               {orders.map((order) => (
                 <div key={order.id} className="flex items-center gap-2">
                   <div className="flex-1"><SortableCard order={order} onEdit={openEdit} onDelete={handleDelete} /></div>
-                  <button onClick={() => handleComplete(order.id)}
+                  <button onClick={() => askComplete(order)}
                     className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-md hover:bg-emerald-700 mb-3">
                     Completar
                   </button>
@@ -262,6 +281,35 @@ export default function Home() {
               </button>
               <button onClick={saveEdit} className="flex-1 bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700">
                 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL de confirmación al completar manualmente */}
+      {pendingManualComplete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setPendingManualComplete(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-slate-800 text-lg mb-2">¿Completar esta OP?</h3>
+            <p className="text-sm text-slate-500 mb-2">
+              La orden <strong>#{pendingManualComplete.order_number}</strong> tiene actualmente
+              {' '}
+              <strong className={pendingManualComplete.avance != null && pendingManualComplete.avance < 100 ? 'text-amber-600' : 'text-slate-700'}>
+                {pendingManualComplete.avance != null ? `${pendingManualComplete.avance}%` : 'sin datos'} de avance
+              </strong>.
+            </p>
+            {pendingManualComplete.avance != null && pendingManualComplete.avance < 100 && (
+              <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+                Ojo: todavía no llegó al 100%. Si la marcás como completada igual, va a salir de la Cola de Producción y de Turnos y Operarios.
+              </p>
+            )}
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => setPendingManualComplete(null)} className="flex-1 border border-slate-300 rounded-md py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                Cancelar
+              </button>
+              <button onClick={confirmManualComplete} className="flex-1 bg-emerald-600 text-white rounded-md py-2 text-sm font-medium hover:bg-emerald-700">
+                Sí, completar
               </button>
             </div>
           </div>

@@ -63,11 +63,15 @@ export default function PlanDiarioPage() {
       .lte('plan_date', satDate)
     setTasks(taskData || [])
 
-    const { data: ordersData } = await supabase
-      .from('orders')
-      .select('id, order_number, status, products(name)')
-      .in('status', ['pending', 'in_progress'])
-      .order('priority_rank', { ascending: true, nullsFirst: false })
+    // Trae cualquier OP que haya tenido tareas programadas esta semana,
+    // esté activa o ya completada — así no desaparece de la vista al cerrarse.
+    const orderIdsWithTasks = Array.from(new Set((taskData || []).map((t: any) => t.order_id)))
+    const { data: ordersData } = orderIdsWithTasks.length > 0
+      ? await supabase
+          .from('orders')
+          .select('id, order_number, status, products(name)')
+          .in('id', orderIdsWithTasks)
+      : { data: [] }
     setOrders(ordersData || [])
 
     const orderIds = (ordersData || []).map((o: any) => o.id)
@@ -156,7 +160,7 @@ export default function PlanDiarioPage() {
       </div>
 
       {orders.length === 0 ? (
-        <p className="text-slate-500">No hay órdenes activas todavía.</p>
+        <p className="text-slate-500">No hay tareas programadas para esta semana todavía.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
           <table className="text-sm border-collapse table-fixed w-full">
@@ -197,7 +201,6 @@ export default function PlanDiarioPage() {
               </tr>
             </thead>
             <tbody>
-              {/* Fila fija: cumplimiento general de toda la planta ese día — estilo discreto, sin color propio */}
               <tr className="bg-slate-50 border-t-2 border-b-2 border-slate-200">
                 <td className="p-2 font-semibold text-slate-600 text-xs">Cumplimiento de planta</td>
                 {dates.map((d) => {
@@ -220,7 +223,12 @@ export default function PlanDiarioPage() {
               {orders.map((order) => (
                 <tr key={order.id} className="border-t border-slate-100">
                   <td className="p-2 leading-tight">
-                    <div className="text-[11px] text-slate-400">#{order.order_number}</div>
+                    <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                      #{order.order_number}
+                      {order.status === 'completed' && (
+                        <span className="text-emerald-600 text-[10px] bg-emerald-50 px-1 rounded">completada</span>
+                      )}
+                    </div>
                     <div className="text-slate-700 text-xs">{order.products?.name}</div>
                   </td>
                   {dates.map((d) => {
