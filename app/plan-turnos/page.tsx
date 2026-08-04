@@ -16,6 +16,8 @@ function formatDateShort(iso: string) {
   return `${d}/${m}`
 }
 
+const SERVICE_VALUE = '__SERVICIO__'
+
 export default function PlanTurnosPage() {
   const [operators, setOperators] = useState<any[]>([])
   const [newOperatorName, setNewOperatorName] = useState('')
@@ -26,6 +28,7 @@ export default function PlanTurnosPage() {
 
   const [planDate, setPlanDate] = useState(today())
   const [tasks, setTasks] = useState<any[]>([])
+  const [serviceTasks, setServiceTasks] = useState<any[]>([])
   const [availability, setAvailability] = useState<Record<string, number>>({})
 
   const [fOperator, setFOperator] = useState('')
@@ -33,9 +36,13 @@ export default function PlanTurnosPage() {
   const [showOperatorList, setShowOperatorList] = useState(false)
   const [fAvailableHours, setFAvailableHours] = useState('')
   const [fSector, setFSector] = useState('')
-  const [fOrder, setFOrder] = useState('')
+  const [fOrder, setFOrder] = useState('') // puede ser un id de OP, o SERVICE_VALUE
   const [fComponent, setFComponent] = useState('')
   const [fQuantity, setFQuantity] = useState('')
+
+  const [fServiceHours, setFServiceHours] = useState('')
+  const [fServiceQty, setFServiceQty] = useState('')
+  const [fServiceNotes, setFServiceNotes] = useState('')
 
   const [clockTask, setClockTask] = useState<any | null>(null)
   const [clockStart, setClockStart] = useState('')
@@ -67,6 +74,13 @@ export default function PlanTurnosPage() {
       .eq('plan_date', planDate)
       .order('created_at')
     setTasks(taskData || [])
+
+    const { data: serviceData } = await supabase
+      .from('service_tasks')
+      .select('*, operators(full_name), sectors(name)')
+      .eq('plan_date', planDate)
+      .order('created_at')
+    setServiceTasks(serviceData || [])
 
     const { data: availData } = await supabase
       .from('operator_daily_availability').select('*').eq('plan_date', planDate)
@@ -114,11 +128,13 @@ export default function PlanTurnosPage() {
     ? operators.filter((o) => o.full_name.toLowerCase().includes(fOperatorSearch.toLowerCase()))
     : operators
 
+  const isService = fOrder === SERVICE_VALUE
+
   const ordersForSector = fSector
     ? orders.filter((o) => progressRows.some((r) => r.order_id === o.id && r.sector_id === fSector && r.quantity_completed < r.quantity_required))
     : []
 
-  const rowsForOrderSector = (fSector && fOrder)
+  const rowsForOrderSector = (fSector && fOrder && !isService)
     ? progressRows.filter((r) => r.order_id === fOrder && r.sector_id === fSector)
     : []
   const needsComponent = rowsForOrderSector.length > 1 || (rowsForOrderSector[0]?.target_type === 'component')
@@ -143,45 +159,81 @@ export default function PlanTurnosPage() {
   })()
 
   function hoursProgrammedFor(operatorId: string) {
-    return tasks.filter((t) => t.operator_id === operatorId)
+    const opHours = tasks.filter((t) => t.operator_id === operatorId)
       .reduce((sum, t) => sum + Number(t.hours_assigned || 0), 0)
+    const svcHours = serviceTasks.filter((t) => t.operator_id === operatorId)
+      .reduce((sum, t) => sum + Number(t.hours_assigned || 0), 0)
+    return Math.round((opHours + svcHours) * 100) / 100
   }
 
   const hoursSoFar = fOperator ? hoursProgrammedFor(fOperator) : 0
   const availableForSelected = fOperator ? availability[fOperator] : undefined
 
-  async function addTask() {
-    if (!fOperator || !fSector || !fOrder || !fQuantity) {
-      alert('Completá operario, sector, OP y cantidad.')
-      return
-    }
-    if (needsComponent && !fComponent) {
-      alert('Este sector tiene componentes — elegí cuál.')
+  function resetForm() {
+    setFSector(''); setFOrder(''); setFComponent(''); setFQuantity('')
+    setFServiceHours(''); setFServiceQty(''); setFServiceNotes('')
+  }
+
+  async function handleAssign() {
+    if (!fOperator || !fSector || !fOrder) {
+      alert('Completá operario, sector y elegí una OP o Servicio.')
       return
     }
     if (availability[fOperator] == null) {
       alert('Primero cargá las horas disponibles de este operario para esta fecha.')
       return
     }
-    const qty = parseInt(fQuantity, 10)
-    if (pendingForSelectedRow != null && qty > pendingForSelectedRow) {
-      alert(`Esa OP solo tiene ${pendingForSelectedRow} unidades pendientes en este sector/componente (contando lo ya programado hoy).`)
-      return
+
+    if (isService) {
+      if (!fServiceHours) {
+        alert('Completá las horas dedicadas al servicio.')
+        return
+      }
+      const { error } = await supabase.from('service_tasks').insert({
+        operator_id: fOperator,
+        plan_date: planDate,
+        sector_id: fSector,
+        hours_assigned: parseFloat(fServiceHours),
+        quantity_services: fServiceQty ? parseInt(fServiceQty, 10) : null,
+        notes: fServiceNotes || null,
+      })
+      if (error) { alert('Error al asignar el servicio: ' + error.message); return }
+    } else {
+      if (!fQuantity) {
+        alert('Completá la cantidad a programar.')
+        return
+      }
+      if (needsComponent && !fComponent) {
+        alert('Este sector tiene componentes — elegí cuál.')
+        return
+      }
+      const qty = parseInt(fQuantity, 10)
+      if (pendingForSelectedRow != null && qty > pendingForSelectedRow) {
+        alert(`Esa OP solo tiene ${pendingForSelectedRow} unidades pendientes en este sector/componente (contando lo ya programado hoy).`)
+        return
+      }
+      const { error } = await supabase.from('operator_daily_tasks').insert({
+        operator_id: fOperator,
+        plan_date: planDate,
+        sector_id: fSector,
+        order_id: fOrder,
+        component_id: needsComponent ? fComponent : null,
+        hours_assigned: taskHours ?? 0,
+        target_quantity: qty,
+        standard_time_minutes: selectedRow?.standard_time_minutes ?? null,
+        catalog_time_id: selectedRow?.catalog_time_id ?? null,
+      })
+      if (error) { alert('Error al asignar la tarea: ' + error.message); return }
     }
-    const { error } = await supabase.from('operator_daily_tasks').insert({
-      operator_id: fOperator,
-      plan_date: planDate,
-      sector_id: fSector,
-      order_id: fOrder,
-      component_id: needsComponent ? fComponent : null,
-      hours_assigned: taskHours ?? 0,
-      target_quantity: qty,
-      standard_time_minutes: selectedRow?.standard_time_minutes ?? null,
-      catalog_time_id: selectedRow?.catalog_time_id ?? null,
-    })
-    if (error) { alert('Error al asignar la tarea: ' + error.message); return }
-    setFSector(''); setFOrder(''); setFComponent(''); setFQuantity('')
+
+    resetForm()
     fetchTasksAndAvailability(); fetchStatic()
+  }
+
+  async function deleteServiceTask(id: string) {
+    if (!confirm('¿Eliminar este servicio asignado?')) return
+    await supabase.from('service_tasks').delete().eq('id', id)
+    fetchTasksAndAvailability()
   }
 
   async function saveActual(taskId: string, value: string) {
@@ -239,7 +291,7 @@ export default function PlanTurnosPage() {
     const perUnit = duration / clockTask.actual_quantity
     const standard = clockTask.standard_time_minutes || 0
     const diff = perUnit - standard
-    const tolerance = Math.max(0.3, standard * 0.05) // margen chico para no marcar ruido
+    const tolerance = Math.max(0.3, standard * 0.05)
 
     if (Math.abs(diff) <= tolerance) {
       setClockResult({ type: 'ok', diffPerUnit: 0, newMinutes: perUnit })
@@ -279,11 +331,16 @@ export default function PlanTurnosPage() {
 
   if (loading) return <main className="p-6 text-slate-500">Cargando...</main>
 
-  const tasksByOperator: Record<string, { id: string; tasks: any[] }> = {}
+  const tasksByOperator: Record<string, { id: string; tasks: any[]; services: any[] }> = {}
   tasks.forEach((t) => {
     const name = t.operators?.full_name || 'Sin asignar'
-    if (!tasksByOperator[name]) tasksByOperator[name] = { id: t.operator_id, tasks: [] }
+    if (!tasksByOperator[name]) tasksByOperator[name] = { id: t.operator_id, tasks: [], services: [] }
     tasksByOperator[name].tasks.push(t)
+  })
+  serviceTasks.forEach((t) => {
+    const name = t.operators?.full_name || 'Sin asignar'
+    if (!tasksByOperator[name]) tasksByOperator[name] = { id: t.operator_id, tasks: [], services: [] }
+    tasksByOperator[name].services.push(t)
   })
 
   const ClockButton = ({ t }: { t: any }) => (
@@ -377,30 +434,55 @@ export default function PlanTurnosPage() {
             {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
 
-          <select value={fOrder} onChange={(e) => { setFOrder(e.target.value); setFComponent('') }} disabled={!fSector}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm disabled:bg-slate-50 min-w-0 truncate w-full">
-            <option value="">OP pendiente...</option>
-            {ordersForSector.map((o) => <option key={o.id} value={o.id}>#{o.order_number} — {o.products?.name}</option>)}
+          <select
+            value={fOrder}
+            onChange={(e) => { setFOrder(e.target.value); setFComponent('') }}
+            disabled={!fSector}
+            className={`border rounded-md px-2 py-1.5 text-sm disabled:bg-slate-50 min-w-0 truncate w-full ${
+              isService ? 'border-blue-400 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300'
+            }`}
+          >
+            <option value="">OP / Servicio...</option>
+            <option value={SERVICE_VALUE}>🔧 Servicio (sin OP)</option>
+            {ordersForSector.length > 0 && (
+              <optgroup label="Órdenes pendientes">
+                {ordersForSector.map((o) => <option key={o.id} value={o.id}>#{o.order_number} — {o.products?.name}</option>)}
+              </optgroup>
+            )}
           </select>
 
-          {needsComponent ? (
+          {!isService && needsComponent ? (
             <select value={fComponent} onChange={(e) => setFComponent(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
               <option value="">Componente...</option>
               {rowsForOrderSector.map((r) => <option key={r.component_id} value={r.component_id}>{r.component_name}</option>)}
             </select>
-          ) : <div className="hidden md:block" />}
+          ) : !isService ? <div className="hidden md:block" /> : null}
 
-          <div className="min-w-0">
-            <input placeholder="Cantidad a programar" type="number" value={fQuantity}
-              max={pendingForSelectedRow ?? undefined}
-              onChange={(e) => setFQuantity(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
-            {pendingForSelectedRow != null && (
-              <p className="text-xs text-slate-400 mt-0.5">Pendiente: {pendingForSelectedRow} u.</p>
-            )}
-          </div>
+          {isService ? (
+            <input placeholder="Horas dedicadas" type="number" step={0.5} value={fServiceHours}
+              onChange={(e) => setFServiceHours(e.target.value)} className="border border-blue-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+          ) : (
+            <div className="min-w-0">
+              <input placeholder="Cantidad a programar" type="number" value={fQuantity}
+                max={pendingForSelectedRow ?? undefined}
+                onChange={(e) => setFQuantity(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+              {pendingForSelectedRow != null && (
+                <p className="text-xs text-slate-400 mt-0.5">Pendiente: {pendingForSelectedRow} u.</p>
+              )}
+            </div>
+          )}
         </div>
 
-        {taskHours != null && (
+        {isService && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+            <input placeholder="Cantidad de servicios (opcional)" type="number" value={fServiceQty}
+              onChange={(e) => setFServiceQty(e.target.value)} className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+            <input placeholder="Obs. (opcional)" value={fServiceNotes} onChange={(e) => setFServiceNotes(e.target.value)}
+              className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+          </div>
+        )}
+
+        {!isService && taskHours != null && (
           <p className="text-xs text-slate-500 mb-2">
             Esta tarea representa <strong className="text-slate-700">{taskHours} hs</strong>.
             {availableForSelected != null && (
@@ -410,9 +492,18 @@ export default function PlanTurnosPage() {
             )}
           </p>
         )}
+        {isService && fServiceHours && availableForSelected != null && (
+          <p className="text-xs text-slate-500 mb-2">
+            Total si confirmás: <strong className={hoursSoFar + parseFloat(fServiceHours || '0') > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
+              {Math.round((hoursSoFar + parseFloat(fServiceHours || '0')) * 100) / 100} / {availableForSelected} hs
+            </strong>
+          </p>
+        )}
 
-        <button onClick={addTask} className="mt-2 w-full sm:w-auto bg-emerald-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-emerald-700">
-          Asignar tarea
+        <button onClick={handleAssign} className={`mt-2 w-full sm:w-auto text-white px-4 py-2 rounded-md text-sm font-medium ${
+          isService ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+        }`}>
+          {isService ? 'Asignar servicio' : 'Asignar tarea'}
         </button>
       </div>
 
@@ -433,111 +524,130 @@ export default function PlanTurnosPage() {
                   </p>
                 </div>
 
-                {/* ===== VERSIÓN PC ===== */}
-                <table className="w-full text-sm table-fixed hidden md:table">
-                  <thead>
-                    <tr className="text-left text-slate-400 text-xs">
-                      <th className="py-1 w-[120px]">Sector</th>
-                      <th className="py-1">OP / Producto</th>
-                      <th className="py-1 text-center w-[65px]">Objetivo</th>
-                      <th className="py-1 text-center w-[80px]">Real</th>
-                      <th className="py-1 w-[150px]">Obs.</th>
-                      <th className="py-1 w-[55px]"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {group.tasks.map((t) => (
-                      <tr key={t.id} className="border-t border-slate-100 align-top">
-                        <td className="py-2">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</td>
-                        <td className="py-2 leading-tight">
-                          <div className="text-xs text-slate-400">#{t.orders?.order_number}</div>
-                          <div className="text-slate-700">{t.orders?.products?.name}</div>
-                        </td>
-                        <td className="py-2 text-center font-medium">{t.target_quantity}</td>
-                        <td className="py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <input
-                              type="number"
-                              defaultValue={t.actual_quantity ?? ''}
-                              placeholder="—"
-                              onBlur={(e) => saveActual(t.id, e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                              className="w-14 text-center rounded-md border border-slate-300 py-1"
-                            />
-                            <ClockButton t={t} />
+                {group.tasks.length > 0 && (
+                  <>
+                    <table className="w-full text-sm table-fixed hidden md:table mb-2">
+                      <thead>
+                        <tr className="text-left text-slate-400 text-xs">
+                          <th className="py-1 w-[120px]">Sector</th>
+                          <th className="py-1">OP / Producto</th>
+                          <th className="py-1 text-center w-[65px]">Objetivo</th>
+                          <th className="py-1 text-center w-[80px]">Real</th>
+                          <th className="py-1 w-[150px]">Obs.</th>
+                          <th className="py-1 w-[55px]"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.tasks.map((t) => (
+                          <tr key={t.id} className="border-t border-slate-100 align-top">
+                            <td className="py-2">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</td>
+                            <td className="py-2 leading-tight">
+                              <div className="text-xs text-slate-400">#{t.orders?.order_number}</div>
+                              <div className="text-slate-700">{t.orders?.products?.name}</div>
+                            </td>
+                            <td className="py-2 text-center font-medium">{t.target_quantity}</td>
+                            <td className="py-2 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <input
+                                  type="number"
+                                  defaultValue={t.actual_quantity ?? ''}
+                                  placeholder="—"
+                                  onBlur={(e) => saveActual(t.id, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                  className="w-14 text-center rounded-md border border-slate-300 py-1"
+                                />
+                                <ClockButton t={t} />
+                              </div>
+                            </td>
+                            <td className="py-2">
+                              <input
+                                type="text"
+                                defaultValue={t.notes ?? ''}
+                                placeholder="Ej: reunión 20 min"
+                                onBlur={(e) => saveNotes(t.id, e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                className="w-full rounded-md border border-slate-300 py-1 px-2 text-xs"
+                              />
+                            </td>
+                            <td className="py-2 text-right">
+                              <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline">Eliminar</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <div className="md:hidden flex flex-col gap-3 mb-2">
+                      {group.tasks.map((t) => (
+                        <div key={t.id} className="border border-slate-200 rounded-lg p-3 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-slate-400">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
+                              <p className="text-sm font-medium text-slate-700 break-words">
+                                #{t.orders?.order_number} — {t.orders?.products?.name}
+                              </p>
+                            </div>
+                            <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
                           </div>
-                        </td>
-                        <td className="py-2">
+                          <div className="flex items-center gap-4 mb-2">
+                            <div>
+                              <p className="text-[10px] text-slate-400">Objetivo</p>
+                              <p className="text-sm font-semibold text-slate-700">{t.target_quantity}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-400">Real</p>
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  defaultValue={t.actual_quantity ?? ''}
+                                  placeholder="—"
+                                  onBlur={(e) => saveActual(t.id, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                  className="w-14 text-center rounded-md border border-slate-300 py-1 text-sm"
+                                />
+                                <ClockButton t={t} />
+                              </div>
+                            </div>
+                          </div>
                           <input
                             type="text"
                             defaultValue={t.notes ?? ''}
-                            placeholder="Ej: reunión 20 min"
+                            placeholder="Obs. (ej: reunión 20 min)"
                             onBlur={(e) => saveNotes(t.id, e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-full rounded-md border border-slate-300 py-1 px-2 text-xs"
+                            className="w-full rounded-md border border-slate-300 py-1.5 px-2 text-xs min-w-0"
                           />
-                        </td>
-                        <td className="py-2 text-right">
-                          <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline">Eliminar</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                {/* ===== VERSIÓN CELULAR ===== */}
-                <div className="md:hidden flex flex-col gap-3">
-                  {group.tasks.map((t) => (
-                    <div key={t.id} className="border border-slate-200 rounded-lg p-3 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs text-slate-400">{t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
-                          <p className="text-sm font-medium text-slate-700 break-words">
-                            #{t.orders?.order_number} — {t.orders?.products?.name}
-                          </p>
                         </div>
-                        <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
-                      </div>
-
-                      <div className="flex items-center gap-4 mb-2">
-                        <div>
-                          <p className="text-[10px] text-slate-400">Objetivo</p>
-                          <p className="text-sm font-semibold text-slate-700">{t.target_quantity}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400">Real</p>
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              defaultValue={t.actual_quantity ?? ''}
-                              placeholder="—"
-                              onBlur={(e) => saveActual(t.id, e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                              className="w-14 text-center rounded-md border border-slate-300 py-1 text-sm"
-                            />
-                            <ClockButton t={t} />
-                          </div>
-                        </div>
-                      </div>
-
-                      <input
-                        type="text"
-                        defaultValue={t.notes ?? ''}
-                        placeholder="Obs. (ej: reunión 20 min)"
-                        onBlur={(e) => saveNotes(t.id, e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-full rounded-md border border-slate-300 py-1.5 px-2 text-xs min-w-0"
-                      />
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
+
+                {group.services.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-blue-600 mb-1.5">Servicios</p>
+                    <div className="flex flex-col gap-2">
+                      {group.services.map((s: any) => (
+                        <div key={s.id} className="flex items-center justify-between gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm text-slate-700">
+                              {s.sectors?.name} — <strong>{s.hours_assigned} hs</strong>
+                              {s.quantity_services != null && ` — ${s.quantity_services} servicios`}
+                            </p>
+                            {s.notes && <p className="text-xs text-slate-500 italic">"{s.notes}"</p>}
+                          </div>
+                          <button onClick={() => deleteServiceTask(s.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       )}
 
-      {/* MODAL del reloj */}
       {clockTask && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={closeClock}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
