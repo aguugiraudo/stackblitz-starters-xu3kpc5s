@@ -63,14 +63,12 @@ export default function PlanDiarioPage() {
       .lte('plan_date', satDate)
     setTasks(taskData || [])
 
-    // Todas las OPs activas (tengan o no programación esta semana)
     const { data: activeOrders } = await supabase
       .from('orders')
-      .select('id, order_number, status, products(name)')
+      .select('id, order_number, status, completed_at, products(name)')
       .in('status', ['pending', 'in_progress'])
       .order('priority_rank', { ascending: true, nullsFirst: false })
 
-    // + las que ya se completaron pero tuvieron actividad esta semana en particular
     const orderIdsWithTasks = Array.from(new Set((taskData || []).map((t: any) => t.order_id)))
     const activeIds = new Set((activeOrders || []).map((o: any) => o.id))
     const missingIds = orderIdsWithTasks.filter((id) => !activeIds.has(id))
@@ -79,12 +77,15 @@ export default function PlanDiarioPage() {
     if (missingIds.length > 0) {
       const { data } = await supabase
         .from('orders')
-        .select('id, order_number, status, products(name)')
+        .select('id, order_number, status, completed_at, products(name)')
         .in('id', missingIds)
-      completedWithTasks = data || []
+      // Las completadas más recientes primero, y todas arriba de las activas — así no se "pierden" al fondo
+      completedWithTasks = (data || []).sort((a: any, b: any) =>
+        new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime()
+      )
     }
 
-    const allOrders = [...(activeOrders || []), ...completedWithTasks]
+    const allOrders = [...completedWithTasks, ...(activeOrders || [])]
     setOrders(allOrders)
 
     const orderIds = allOrders.map((o: any) => o.id)
@@ -140,6 +141,17 @@ export default function PlanDiarioPage() {
     return { progHoras, realHoras, cumplimiento }
   }
 
+  // Cumplimiento acumulado de TODA la semana (todos los días juntos)
+  function weekResult() {
+    const weekTasks = tasks // ya viene filtrado por la semana actual desde fetchAll
+    if (weekTasks.length === 0) return null
+    const progMinutes = weekTasks.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
+    const hasAnyActual = weekTasks.some((t) => t.actual_quantity != null)
+    const realMinutes = weekTasks.reduce((s, t) => s + (t.actual_quantity != null ? t.actual_quantity * (t.standard_time_minutes || 0) : 0), 0)
+    if (!hasAnyActual || progMinutes === 0) return null
+    return Math.round((realMinutes / progMinutes) * 1000) / 10
+  }
+
   function cumplimientoColor(c: number | null) {
     if (c == null) return 'text-slate-300'
     if (c >= 100) return 'text-emerald-600 font-semibold'
@@ -148,6 +160,8 @@ export default function PlanDiarioPage() {
   }
 
   if (loading) return <main className="p-6 text-slate-500">Cargando...</main>
+
+  const weekCumplimiento = weekResult()
 
   return (
     <main className="p-6 max-w-full mx-auto">
@@ -169,6 +183,11 @@ export default function PlanDiarioPage() {
         )}
         {hasSaturdayTasks && (
           <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">+ Sábado {shortDate(satDate)} (extra)</span>
+        )}
+        {weekCumplimiento != null && (
+          <span className={`text-xs px-2 py-1 rounded-full bg-slate-100 ${cumplimientoColor(weekCumplimiento)}`}>
+            Cumplimiento de la semana: {weekCumplimiento}%
+          </span>
         )}
       </div>
 
