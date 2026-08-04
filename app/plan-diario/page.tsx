@@ -45,8 +45,8 @@ export default function PlanDiarioPage() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [orders, setOrders] = useState<any[]>([])
   const [weightByOrder, setWeightByOrder] = useState<Record<string, number>>({})
-  const [tasks, setTasks] = useState<any[]>([]) // tareas de la semana (para el resumen de planta)
-  const [allTasksByOrder, setAllTasksByOrder] = useState<Record<string, any[]>>({}) // TODA la historia, para el acumulado
+  const [tasks, setTasks] = useState<any[]>([])
+  const [allTasksByOrder, setAllTasksByOrder] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
 
   const monday = getMondayOfWeek(weekOffset)
@@ -101,7 +101,6 @@ export default function PlanDiarioPage() {
       })
       setWeightByOrder(weights)
 
-      // Historial COMPLETO (todas las fechas) de esas OPs, para calcular el acumulado
       const { data: allTaskData } = await supabase
         .from('operator_daily_tasks')
         .select('order_id, plan_date, target_quantity, actual_quantity, standard_time_minutes')
@@ -125,7 +124,6 @@ export default function PlanDiarioPage() {
   const hasSaturdayTasks = tasks.some((t) => t.plan_date === satDate)
   const dates = hasSaturdayTasks ? [...weekdayDates, satDate] : weekdayDates
 
-  // Acumulado (objetivo y real) de una OP hasta una fecha dada — inclusive o estrictamente antes
   function cumulativeUpTo(orderId: string, date: string, inclusive: boolean) {
     const totalWeight = weightByOrder[orderId]
     const all = allTasksByOrder[orderId] || []
