@@ -151,7 +151,7 @@ export default function PlanDiarioPage() {
 
     let cumplimiento: number | null = null
     if (allClosedToday) {
-      const targetIncrement = upToToday.prog - (beforeToday.prog ?? 0)
+      const targetIncrement = (upToToday.prog ?? 0) - (beforeToday.prog ?? 0)
       const realIncrement = (upToToday.real ?? 0) - (beforeToday.real ?? 0)
       cumplimiento = targetIncrement > 0 ? Math.round((realIncrement / targetIncrement) * 1000) / 10 : null
     }
