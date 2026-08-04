@@ -45,7 +45,8 @@ export default function PlanDiarioPage() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [orders, setOrders] = useState<any[]>([])
   const [weightByOrder, setWeightByOrder] = useState<Record<string, number>>({})
-  const [tasks, setTasks] = useState<any[]>([])
+  const [tasks, setTasks] = useState<any[]>([]) // tareas de la semana (para el resumen de planta)
+  const [allTasksByOrder, setAllTasksByOrder] = useState<Record<string, any[]>>({}) // TODA la historia, para el acumulado
   const [loading, setLoading] = useState(true)
 
   const monday = getMondayOfWeek(weekOffset)
@@ -79,7 +80,6 @@ export default function PlanDiarioPage() {
         .from('orders')
         .select('id, order_number, status, completed_at, products(name)')
         .in('id', missingIds)
-      // Las completadas más recientes primero, y todas arriba de las activas — así no se "pierden" al fondo
       completedWithTasks = (data || []).sort((a: any, b: any) =>
         new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime()
       )
@@ -100,6 +100,21 @@ export default function PlanDiarioPage() {
         weights[r.order_id] = (weights[r.order_id] || 0) + r.minutes_required
       })
       setWeightByOrder(weights)
+
+      // Historial COMPLETO (todas las fechas) de esas OPs, para calcular el acumulado
+      const { data: allTaskData } = await supabase
+        .from('operator_daily_tasks')
+        .select('order_id, plan_date, target_quantity, actual_quantity, standard_time_minutes')
+        .in('order_id', orderIds)
+
+      const grouped: Record<string, any[]> = {}
+      ;(allTaskData || []).forEach((t: any) => {
+        if (!grouped[t.order_id]) grouped[t.order_id] = []
+        grouped[t.order_id].push(t)
+      })
+      setAllTasksByOrder(grouped)
+    } else {
+      setAllTasksByOrder({})
     }
 
     setLoading(false)
@@ -110,20 +125,40 @@ export default function PlanDiarioPage() {
   const hasSaturdayTasks = tasks.some((t) => t.plan_date === satDate)
   const dates = hasSaturdayTasks ? [...weekdayDates, satDate] : weekdayDates
 
-  function dayResult(orderId: string, date: string) {
+  // Acumulado (objetivo y real) de una OP hasta una fecha dada — inclusive o estrictamente antes
+  function cumulativeUpTo(orderId: string, date: string, inclusive: boolean) {
     const totalWeight = weightByOrder[orderId]
-    const dayTasks = tasks.filter((t) => t.order_id === orderId && t.plan_date === date)
-    if (dayTasks.length === 0 || !totalWeight) return null
+    const all = allTasksByOrder[orderId] || []
+    const relevant = all.filter((t) => inclusive ? t.plan_date <= date : t.plan_date < date)
+    if (!totalWeight || relevant.length === 0) return { prog: null as number | null, real: null as number | null, hasAny: false }
 
-    const progMinutes = dayTasks.reduce((sum, t) => sum + t.target_quantity * (t.standard_time_minutes || 0), 0)
-    const hasAnyActual = dayTasks.some((t) => t.actual_quantity != null)
-    const realMinutes = dayTasks.reduce((sum, t) => sum + (t.actual_quantity != null ? t.actual_quantity * (t.standard_time_minutes || 0) : 0), 0)
+    const progMin = relevant.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
+    const closed = relevant.filter((t) => t.actual_quantity != null)
+    const realMin = closed.reduce((s, t) => s + t.actual_quantity * (t.standard_time_minutes || 0), 0)
 
-    const progPct = Math.round((progMinutes / totalWeight) * 1000) / 10
-    const realPct = hasAnyActual ? Math.round((realMinutes / totalWeight) * 1000) / 10 : null
-    const cumplimiento = realPct != null && progPct > 0 ? Math.round((realPct / progPct) * 1000) / 10 : null
+    return {
+      prog: Math.round((progMin / totalWeight) * 1000) / 10,
+      real: closed.length > 0 ? Math.round((realMin / totalWeight) * 1000) / 10 : null,
+      hasAny: true,
+    }
+  }
 
-    return { progPct, realPct, cumplimiento }
+  function dayResult(orderId: string, date: string) {
+    const upToToday = cumulativeUpTo(orderId, date, true)
+    if (!upToToday.hasAny) return null
+
+    const beforeToday = cumulativeUpTo(orderId, date, false)
+    const todaysTasks = (allTasksByOrder[orderId] || []).filter((t) => t.plan_date === date)
+    const allClosedToday = todaysTasks.length > 0 && todaysTasks.every((t) => t.actual_quantity != null)
+
+    let cumplimiento: number | null = null
+    if (allClosedToday) {
+      const targetIncrement = upToToday.prog - (beforeToday.prog ?? 0)
+      const realIncrement = (upToToday.real ?? 0) - (beforeToday.real ?? 0)
+      cumplimiento = targetIncrement > 0 ? Math.round((realIncrement / targetIncrement) * 1000) / 10 : null
+    }
+
+    return { progPct: upToToday.prog, realPct: upToToday.real, cumplimiento }
   }
 
   function plantDayResult(date: string) {
@@ -141,9 +176,8 @@ export default function PlanDiarioPage() {
     return { progHoras, realHoras, cumplimiento }
   }
 
-  // Cumplimiento acumulado de TODA la semana (todos los días juntos)
   function weekResult() {
-    const weekTasks = tasks // ya viene filtrado por la semana actual desde fetchAll
+    const weekTasks = tasks
     if (weekTasks.length === 0) return null
     const progMinutes = weekTasks.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
     const hasAnyActual = weekTasks.some((t) => t.actual_quantity != null)
@@ -166,7 +200,7 @@ export default function PlanDiarioPage() {
   return (
     <main className="p-6 max-w-full mx-auto">
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Plan Diario</h1>
-      <p className="text-sm text-slate-500 mb-4">Objetivo programado vs. producción real, por orden y por día.</p>
+      <p className="text-sm text-slate-500 mb-4">Avance acumulado de cada orden, y cumplimiento del objetivo de cada día.</p>
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <button onClick={() => setWeekOffset((w) => w - 1)} className="text-sm px-3 py-1.5 rounded-md border border-slate-300 hover:bg-slate-50">
@@ -272,7 +306,7 @@ export default function PlanDiarioPage() {
                         isToday ? 'border-slate-100 bg-slate-50/60' : 'border-slate-100'
                       }`}>
                         <div className="grid grid-cols-3">
-                          <span className="text-center py-2 text-slate-600 text-xs">{r ? `${r.progPct}%` : '—'}</span>
+                          <span className="text-center py-2 text-slate-600 text-xs">{r?.progPct != null ? `${r.progPct}%` : '—'}</span>
                           <span className="text-center py-2 text-slate-600 text-xs">{r?.realPct != null ? `${r.realPct}%` : '—'}</span>
                           <span className={`text-center py-2 text-xs ${cumplimientoColor(r?.cumplimiento ?? null)}`}>
                             {r?.cumplimiento != null ? `${r.cumplimiento}%` : '—'}
