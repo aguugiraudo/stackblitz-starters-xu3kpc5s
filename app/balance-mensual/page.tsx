@@ -171,7 +171,6 @@ export default function CapacidadMensualPage() {
     .filter((s) => s.diasNecesarios != null && s.pendingHoras > 0)
     .sort((a, b) => (b.diasNecesarios || 0) - (a.diasNecesarios || 0))[0]
 
-  // Panorama general: mano de obra real (operarios × hs/operario), independiente de los inputs por sector
   const totalPendingHoras = Math.round(sectorStats.reduce((s, x) => s + x.pendingHoras, 0) * 10) / 10
   const laborDiariaTotal = plantSettings.totalOperators * plantSettings.hoursPerOperator
   const laborCapacidadMes = Math.round(laborDiariaTotal * businessDaysLeft * 10) / 10
@@ -217,7 +216,6 @@ export default function CapacidadMensualPage() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Capacidad Mensual</h1>
       <p className="text-sm text-slate-500 mb-6">Proyección de la carga pendiente frente a la capacidad disponible, por sector y a nivel planta.</p>
 
-      {/* Selector de Órdenes */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-6 overflow-hidden">
         <button
           onClick={() => setOrderPickerOpen(!orderPickerOpen)}
@@ -246,7 +244,6 @@ export default function CapacidadMensualPage() {
         )}
       </div>
 
-      {/* Panorama General */}
       <div className="bg-slate-900 text-white rounded-xl shadow-sm p-5 mb-6">
         <p className="font-semibold mb-1">Panorama General</p>
         <p className="text-xs text-slate-400 mb-4">Capacidad de mano de obra de la planta frente a la carga total pendiente del mes.</p>
@@ -297,7 +294,6 @@ export default function CapacidadMensualPage() {
         </div>
       </div>
 
-      {/* Sector crítico */}
       {bottleneck && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <p className="text-sm text-amber-800">
@@ -307,25 +303,14 @@ export default function CapacidadMensualPage() {
         </div>
       )}
 
-      {/* Detalle por sector */}
       <h2 className="font-semibold text-slate-700 mb-3">Detalle por sector</h2>
       <div className="space-y-3 mb-8">
         {sectorStats.map(({ sector, pendingHoras, hoursPerDay, diasNecesarios, fechaFin, diferenciaMes }) => (
           <div key={sector.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <p className="font-semibold text-slate-800 text-lg">{sector.name}</p>
-                {pendingHoras > 0 && (
-                  <button
-                    onClick={() => setSectorModal({ sector, orders: pendingHoursByOrderFor(sector.id), totalHoras: pendingHoras })}
-                    className="text-xs text-blue-600 underline"
-                  >
-                    Ver desglose por orden
-                  </button>
-                )}
-              </div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="font-semibold text-slate-800 text-lg">{sector.name}</p>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">Horas/día asignadas:</label>
+                <label className="text-xs text-slate-500">Horas/día asignadas</label>
                 <input
                   type="number"
                   step={0.5}
@@ -336,35 +321,45 @@ export default function CapacidadMensualPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-slate-400">Carga pendiente</p>
+                <p className="text-xs text-slate-400 mb-0.5">Carga pendiente</p>
                 <p className="text-slate-700 font-medium">{pendingHoras} hs</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Días necesarios</p>
+                <p className="text-xs text-slate-400 mb-0.5">Días necesarios</p>
                 <p className="text-slate-700 font-medium">{diasNecesarios != null ? `${diasNecesarios} días` : '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Fin estimado</p>
+                <p className="text-xs text-slate-400 mb-0.5">Fin estimado</p>
                 <p className="text-slate-700 font-medium">{pendingHoras > 0 ? shortDate(fechaFin) : '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-400">Diagnóstico del mes</p>
+                <p className="text-xs text-slate-400 mb-0.5">Diagnóstico del mes</p>
                 {hoursPerDay === 0 ? (
                   <p className="text-slate-400 text-sm">Sin datos</p>
                 ) : diferenciaMes >= 0 ? (
-                  <p className="text-emerald-700 text-sm font-medium">Capacidad correcta (+{diferenciaMes}hs)</p>
+                  <p className="text-emerald-700 text-sm font-medium">Correcta (+{diferenciaMes}hs)</p>
                 ) : (
-                  <p className="text-rose-700 text-sm font-medium">Requiere tercerización ({Math.abs(diferenciaMes)}hs)</p>
+                  <p className="text-rose-700 text-sm font-medium">Tercerizar ({Math.abs(diferenciaMes)}hs)</p>
                 )}
               </div>
             </div>
+
+            {pendingHoras > 0 && (
+              <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setSectorModal({ sector, orders: pendingHoursByOrderFor(sector.id), totalHoras: pendingHoras })}
+                  className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-full hover:bg-slate-200"
+                >
+                  Ver desglose por orden
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Estimación de finalización por orden */}
       <h2 className="font-semibold text-slate-700 mb-1">Estimación de finalización por orden</h2>
       <p className="text-xs text-slate-400 mb-3">Basado en el orden de prioridad actual de la Cola de Producción. Es una proyección orientativa, no una fecha comprometida.</p>
       {selectedOrderIds.size === 0 ? (
@@ -397,7 +392,6 @@ export default function CapacidadMensualPage() {
         </div>
       )}
 
-      {/* Modal: desglose por orden de un sector */}
       {sectorModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSectorModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
