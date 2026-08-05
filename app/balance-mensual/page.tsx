@@ -47,6 +47,11 @@ export default function CapacidadMensualPage() {
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [orderPickerOpen, setOrderPickerOpen] = useState(false)
   const [sectorModal, setSectorModal] = useState<any | null>(null)
+
+  const [plantSettings, setPlantSettings] = useState<{ id: string | null; totalOperators: number; hoursPerOperator: number }>({
+    id: null, totalOperators: 0, hoursPerOperator: 8,
+  })
+
   const [loading, setLoading] = useState(true)
 
   async function fetchAll() {
@@ -58,6 +63,15 @@ export default function CapacidadMensualPage() {
     const capMap: Record<string, number> = {}
     ;(capData || []).forEach((c: any) => { capMap[c.sector_id] = Number(c.hours_per_day) })
     setCapacity(capMap)
+
+    const { data: plantData } = await supabase.from('plant_capacity_settings').select('*').limit(1).maybeSingle()
+    if (plantData) {
+      setPlantSettings({
+        id: plantData.id,
+        totalOperators: plantData.total_operators,
+        hoursPerOperator: Number(plantData.hours_per_operator),
+      })
+    }
 
     const { data: ordersData } = await supabase
       .from('orders')
@@ -91,6 +105,18 @@ export default function CapacidadMensualPage() {
       .upsert({ sector_id: sectorId, hours_per_day: hrs }, { onConflict: 'sector_id' })
   }
 
+  async function savePlantSetting(field: 'totalOperators' | 'hoursPerOperator', value: string) {
+    const num = field === 'totalOperators' ? parseInt(value || '0', 10) : parseFloat(value || '0')
+    const next = { ...plantSettings, [field]: num }
+    setPlantSettings(next)
+    if (plantSettings.id) {
+      await supabase.from('plant_capacity_settings').update({
+        total_operators: next.totalOperators,
+        hours_per_operator: next.hoursPerOperator,
+      }).eq('id', plantSettings.id)
+    }
+  }
+
   function toggleOrder(orderId: string) {
     setSelected((prev) => ({ ...prev, [orderId]: !prev[orderId] }))
   }
@@ -118,14 +144,13 @@ export default function CapacidadMensualPage() {
         const pend = Math.max(0, r.minutes_required - r.minutes_completed)
         map[r.order_id] = (map[r.order_id] || 0) + pend
       })
-    const result = Object.entries(map)
+    return Object.entries(map)
       .map(([orderId, min]) => ({
         order: orders.find((o) => o.id === orderId),
         hours: Math.round((min / 60) * 10) / 10,
       }))
       .filter((r) => r.hours > 0)
       .sort((a, b) => b.hours - a.hours)
-    return result
   }
 
   const businessDaysLeft = businessDaysLeftInMonth()
@@ -146,13 +171,13 @@ export default function CapacidadMensualPage() {
     .filter((s) => s.diasNecesarios != null && s.pendingHoras > 0)
     .sort((a, b) => (b.diasNecesarios || 0) - (a.diasNecesarios || 0))[0]
 
-  // Resumen global: toda la carga vs toda la capacidad del mes, sumando todos los sectores
+  // Panorama general: mano de obra real (operarios × hs/operario), independiente de los inputs por sector
   const totalPendingHoras = Math.round(sectorStats.reduce((s, x) => s + x.pendingHoras, 0) * 10) / 10
-  const totalCapacidadMes = Math.round(sectorStats.reduce((s, x) => s + x.capacidadMes, 0) * 10) / 10
-  const totalDiferencia = Math.round((totalCapacidadMes - totalPendingHoras) * 10) / 10
-  const anyCapacityLoaded = sectorStats.some((s) => s.hoursPerDay > 0)
+  const laborDiariaTotal = plantSettings.totalOperators * plantSettings.hoursPerOperator
+  const laborCapacidadMes = Math.round(laborDiariaTotal * businessDaysLeft * 10) / 10
+  const laborDiferencia = Math.round((laborCapacidadMes - totalPendingHoras) * 10) / 10
+  const hasLaborInput = plantSettings.totalOperators > 0 && plantSettings.hoursPerOperator > 0
 
-  // Fin estimado de cada OP: la fecha más lejana entre todos los sectores donde todavía tiene pendiente
   function orderEstimatedFinish(order: any) {
     let maxDays: number | null = null
     let limitingSector: any = null
@@ -190,16 +215,16 @@ export default function CapacidadMensualPage() {
   return (
     <main className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Capacidad Mensual</h1>
-      <p className="text-sm text-slate-500 mb-6">Proyectá cuánto tiempo te lleva la carga pendiente, sector por sector.</p>
+      <p className="text-sm text-slate-500 mb-6">Proyección de la carga pendiente frente a la capacidad disponible, por sector y a nivel planta.</p>
 
-      {/* Selector de OPs — desplegable */}
+      {/* Selector de Órdenes */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-6 overflow-hidden">
         <button
           onClick={() => setOrderPickerOpen(!orderPickerOpen)}
           className="w-full flex items-center justify-between p-4 text-left"
         >
           <span className="font-semibold text-slate-700">
-            OPs a proyectar — {selectedCount} de {orders.length} seleccionadas
+            Órdenes incluidas en la proyección — {selectedCount} de {orders.length}
           </span>
           <span className="text-slate-400 text-sm">{orderPickerOpen ? '▲ cerrar' : '▼ ver / elegir'}</span>
         </button>
@@ -221,42 +246,69 @@ export default function CapacidadMensualPage() {
         )}
       </div>
 
-      {/* Resumen global */}
+      {/* Panorama General */}
       <div className="bg-slate-900 text-white rounded-xl shadow-sm p-5 mb-6">
-        <p className="text-sm text-slate-300 mb-3">Resumen global — toda la planta, todos los sectores juntos</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <p className="font-semibold mb-1">Panorama General</p>
+        <p className="text-xs text-slate-400 mb-4">Capacidad de mano de obra de la planta frente a la carga total pendiente del mes.</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
-            <p className="text-xs text-slate-400">Capacidad disponible este mes</p>
-            <p className="text-2xl font-semibold">{anyCapacityLoaded ? `${totalCapacidadMes} hs` : '—'}</p>
+            <label className="text-xs text-slate-400">Cantidad de operarios</label>
+            <input
+              type="number"
+              defaultValue={plantSettings.totalOperators || ''}
+              onBlur={(e) => savePlantSetting('totalOperators', e.target.value)}
+              placeholder="0"
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1"
+            />
           </div>
           <div>
-            <p className="text-xs text-slate-400">Horas pendientes (todas las OPs seleccionadas)</p>
+            <label className="text-xs text-slate-400">Horas por operario / día</label>
+            <input
+              type="number"
+              step={0.5}
+              defaultValue={plantSettings.hoursPerOperator || ''}
+              onBlur={(e) => savePlantSetting('hoursPerOperator', e.target.value)}
+              placeholder="8"
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-700">
+          <div>
+            <p className="text-xs text-slate-400">Capacidad de mano de obra este mes</p>
+            <p className="text-2xl font-semibold">{hasLaborInput ? `${laborCapacidadMes} hs` : '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Carga total pendiente</p>
             <p className="text-2xl font-semibold">{totalPendingHoras} hs</p>
           </div>
           <div>
             <p className="text-xs text-slate-400">Diagnóstico</p>
-            {!anyCapacityLoaded ? (
-              <p className="text-lg text-slate-400">Cargá horas/día en los sectores</p>
-            ) : totalDiferencia >= 0 ? (
-              <p className="text-lg font-semibold text-emerald-400">✓ Sobran ~{totalDiferencia}hs</p>
+            {!hasLaborInput ? (
+              <p className="text-base text-slate-400">Cargá operarios y horas</p>
+            ) : laborDiferencia >= 0 ? (
+              <p className="text-lg font-semibold text-emerald-400">Capacidad suficiente (+{laborDiferencia}hs)</p>
             ) : (
-              <p className="text-lg font-semibold text-rose-400">⚠ Faltan ~{Math.abs(totalDiferencia)}hs</p>
+              <p className="text-lg font-semibold text-rose-400">Capacidad insuficiente (−{Math.abs(laborDiferencia)}hs)</p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Cuello de botella */}
+      {/* Sector crítico */}
       {bottleneck && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <p className="text-sm text-amber-800">
-            <strong>Sector cuello de botella: {bottleneck.sector.name}.</strong> Con la capacidad que cargaste, es el que más tarda en vaciarse
-            ({bottleneck.diasNecesarios} días hábiles) — es el que más impacta si querés acelerar toda la producción.
+            <strong>Sector crítico: {bottleneck.sector.name}.</strong> Con la capacidad cargada, es el que más tarda en absorber su carga pendiente
+            ({bottleneck.diasNecesarios} días hábiles) — el punto de mayor impacto si se busca acelerar la producción general.
           </p>
         </div>
       )}
 
-      {/* Lista de sectores, uno debajo del otro */}
+      {/* Detalle por sector */}
+      <h2 className="font-semibold text-slate-700 mb-3">Detalle por sector</h2>
       <div className="space-y-3 mb-8">
         {sectorStats.map(({ sector, pendingHoras, hoursPerDay, diasNecesarios, fechaFin, diferenciaMes }) => (
           <div key={sector.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
@@ -268,12 +320,12 @@ export default function CapacidadMensualPage() {
                     onClick={() => setSectorModal({ sector, orders: pendingHoursByOrderFor(sector.id), totalHoras: pendingHoras })}
                     className="text-xs text-blue-600 underline"
                   >
-                    ver detalle por OP
+                    Ver desglose por orden
                   </button>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">Horas/día:</label>
+                <label className="text-xs text-slate-500">Horas/día asignadas:</label>
                 <input
                   type="number"
                   step={0.5}
@@ -300,11 +352,11 @@ export default function CapacidadMensualPage() {
               <div>
                 <p className="text-xs text-slate-400">Diagnóstico del mes</p>
                 {hoursPerDay === 0 ? (
-                  <p className="text-slate-400 text-sm">Cargá hs/día</p>
+                  <p className="text-slate-400 text-sm">Sin datos</p>
                 ) : diferenciaMes >= 0 ? (
-                  <p className="text-emerald-700 text-sm font-medium">✓ Correcta (+{diferenciaMes}hs)</p>
+                  <p className="text-emerald-700 text-sm font-medium">Capacidad correcta (+{diferenciaMes}hs)</p>
                 ) : (
-                  <p className="text-rose-700 text-sm font-medium">⚠ Tercerizar ({Math.abs(diferenciaMes)}hs)</p>
+                  <p className="text-rose-700 text-sm font-medium">Requiere tercerización ({Math.abs(diferenciaMes)}hs)</p>
                 )}
               </div>
             </div>
@@ -312,10 +364,11 @@ export default function CapacidadMensualPage() {
         ))}
       </div>
 
-      {/* Fin estimado por OP, considerando todos sus sectores pendientes */}
-      <h2 className="font-semibold text-slate-700 mb-3">¿Cuándo estaría lista cada OP? (estimado, según prioridad en cascada)</h2>
+      {/* Estimación de finalización por orden */}
+      <h2 className="font-semibold text-slate-700 mb-1">Estimación de finalización por orden</h2>
+      <p className="text-xs text-slate-400 mb-3">Basado en el orden de prioridad actual de la Cola de Producción. Es una proyección orientativa, no una fecha comprometida.</p>
       {selectedOrderIds.size === 0 ? (
-        <p className="text-slate-400">No hay OPs seleccionadas.</p>
+        <p className="text-slate-400">No hay órdenes seleccionadas.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
           <table className="w-full text-sm border-collapse">
@@ -323,7 +376,7 @@ export default function CapacidadMensualPage() {
               <tr className="bg-slate-900 text-white text-left">
                 <th className="p-3 font-medium">N° OP</th>
                 <th className="p-3 font-medium">Producto</th>
-                <th className="p-3 font-medium">Sector que más la atrasa</th>
+                <th className="p-3 font-medium">Sector limitante</th>
                 <th className="p-3 font-medium text-center">Fin estimado</th>
               </tr>
             </thead>
@@ -344,26 +397,28 @@ export default function CapacidadMensualPage() {
         </div>
       )}
 
-      {/* Modal: detalle por OP de un sector */}
+      {/* Modal: desglose por orden de un sector */}
       {sectorModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSectorModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-start mb-1">
+            <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="font-semibold text-slate-800">{sectorModal.sector.name}</h3>
                 <p className="text-sm text-slate-500">{sectorModal.totalHoras} hs pendientes en total</p>
               </div>
               <button onClick={() => setSectorModal(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
             </div>
-            <div className="mt-4 space-y-2">
+            <div className="space-y-2">
               {sectorModal.orders.map((r: any) => (
-                <div key={r.order?.id} className="flex items-center justify-between border-b border-slate-100 pb-2 text-sm">
-                  <span className="text-slate-700">#{r.order?.order_number} — {r.order?.products?.name}</span>
-                  <span className="text-slate-500 font-medium">{r.hours} hs</span>
+                <div key={r.order?.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-2.5">
+                  <span className="text-sm text-slate-700 truncate">#{r.order?.order_number} — {r.order?.products?.name}</span>
+                  <span className="text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1 shrink-0">
+                    {r.hours} hs
+                  </span>
                 </div>
               ))}
             </div>
-            <button onClick={() => setSectorModal(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
+            <button onClick={() => setSectorModal(null)} className="mt-5 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
               Cerrar
             </button>
           </div>
