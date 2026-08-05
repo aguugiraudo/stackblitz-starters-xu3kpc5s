@@ -7,12 +7,12 @@ import { useAuth } from './AuthGate'
 
 const allTabs = [
   { href: '/', label: 'Cola de Producción', roles: ['perfil_1', 'perfil_2', 'perfil_3', 'perfil_4'] },
+  { href: '/plan-turnos', label: 'Turnos y Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
   { href: '/control-general', label: 'Avance de Producción', roles: ['perfil_1', 'perfil_2', 'perfil_3', 'perfil_4'] },
   { href: '/plan-diario', label: 'Plan Diario', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
   { href: '/balance-mensual', label: 'Capacidad Mensual', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
-  { href: '/plan-turnos', label: 'Turnos y Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
-  { href: '/rendimiento', label: 'Rendimiento de Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
   { href: '/historial', label: 'Historial de Órdenes', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/rendimiento', label: 'Rendimiento de Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
   { href: '/base-datos', label: 'Catálogo de Productos', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
   { href: '/dashboard', label: 'Dashboard', roles: ['perfil_1', 'perfil_3'] },
 ]
@@ -20,18 +20,20 @@ const allTabs = [
 export default function Nav() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const { role, fullName, logout } = useAuth()
 
   const tabs = allTabs.filter((t) => role && t.roles.includes(role))
+  const initial = fullName ? fullName.trim().charAt(0).toUpperCase() : '?'
 
   return (
     <nav className="bg-slate-900 sticky top-0 z-40">
       <div className="flex items-center justify-between px-4 md:px-6 h-14">
         <Link href="/" className="shrink-0 flex items-center">
-          <Image src="/logo_troya_white.png" alt="Troya" width={110} height={39} className="h-7 w-auto" priority />
+          <Image src="/logo_troya_white.png" alt="Troya" width={120} height={42} className="h-8 w-auto" priority />
         </Link>
 
-        <div className="hidden md:flex items-center gap-5 overflow-x-auto">
+        <div className="hidden md:flex items-center gap-4 overflow-x-auto">
           {tabs.map((t) => {
             const active = pathname === t.href
             return (
@@ -50,18 +52,39 @@ export default function Nav() {
           })}
         </div>
 
-        <div className="hidden md:flex items-center gap-3">
-          <span className="text-xs text-slate-400">{fullName}</span>
-          <button onClick={logout} className="text-xs text-slate-400 hover:text-white">Salir</button>
-        </div>
+        <div className="flex items-center gap-3">
+          {/* Menú de usuario compacto (desktop y celular) */}
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="w-8 h-8 rounded-full bg-slate-700 text-white text-sm font-medium flex items-center justify-center hover:bg-slate-600"
+            >
+              {initial}
+            </button>
+            {userMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setUserMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-20">
+                  <p className="px-3 py-1.5 text-sm text-slate-700 font-medium truncate">{fullName}</p>
+                  <button
+                    onClick={logout}
+                    className="w-full text-left px-3 py-1.5 text-sm text-rose-600 hover:bg-slate-50"
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
-        <button
-          onClick={() => setOpen(!open)}
-          className="md:hidden text-slate-300 p-2"
-          aria-label="Abrir menú"
-        >
-          {open ? '✕' : '☰'}
-        </button>
+          <button
+            onClick={() => setOpen(!open)}
+            className="md:hidden text-slate-300 p-2"
+            aria-label="Abrir menú"
+          >
+            {open ? '✕' : '☰'}
+          </button>
+        </div>
       </div>
 
       {open && (
@@ -81,7 +104,6 @@ export default function Nav() {
               </Link>
             )
           })}
-          <button onClick={logout} className="block py-2.5 text-sm text-rose-400 w-full text-left">Salir</button>
         </div>
       )}
     </nav>
