@@ -267,7 +267,9 @@ export default function CatalogoProductosPage() {
       ) : (
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
           <div className="flex items-center justify-between mb-1">
-            <button onClick={backToMatrix} className="text-xs text-slate-500 hover:text-slate-700 underline">← Volver al listado</button>
+            <button onClick={backToMatrix} className="text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors">
+              ← Volver al listado
+            </button>
           </div>
           <h2 className="font-semibold text-slate-700 mt-2 mb-1">{selectedProduct.name}</h2>
           <p className="text-xs text-slate-400 mb-4">Código: {selectedProduct.code}</p>
@@ -335,8 +337,8 @@ export default function CatalogoProductosPage() {
                             />
                             <span className="text-xs text-slate-400">min</span>
                           </div>
-                          <button onClick={() => openTimeHistory(productRow.id)} className="text-[10px] text-slate-400 hover:text-slate-600 underline">
-                            ver historial
+                          <button onClick={() => openTimeHistory(productRow.id)} className="text-[10px] font-medium uppercase tracking-wide text-slate-400 hover:text-slate-600 transition-colors">
+                            Ver historial
                           </button>
                         </div>
                       ) : canEdit ? (
@@ -361,7 +363,7 @@ export default function CatalogoProductosPage() {
                     </td>
                     <td className="py-3 text-right">
                       {hasComponents && (
-                        <button onClick={() => setModalSector({ id: sector.id, name: sector.name })} className="text-xs text-slate-500 hover:text-slate-700 underline">
+                        <button onClick={() => setModalSector({ id: sector.id, name: sector.name })} className="text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50">
                           Ver detalle
                         </button>
                       )}
@@ -452,8 +454,8 @@ export default function CatalogoProductosPage() {
                         />
                         <span className="text-xs text-slate-400">min</span>
                       </div>
-                      <button onClick={() => openTimeHistory(t.id)} className="text-[10px] text-slate-400 hover:text-slate-600 underline">
-                        ver historial
+                      <button onClick={() => openTimeHistory(t.id)} className="text-[10px] font-medium uppercase tracking-wide text-slate-400 hover:text-slate-600 transition-colors">
+                        Ver historial
                       </button>
                     </div>
                   </div>
