@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,6 +41,9 @@ function shortDate(d: Date) {
 }
 
 export default function CapacidadMensualPage() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1' || role === 'perfil_2'
+
   const [sectors, setSectors] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [progressRows, setProgressRows] = useState<any[]>([])
@@ -216,6 +220,12 @@ export default function CapacidadMensualPage() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Capacidad Mensual</h1>
       <p className="text-sm text-slate-500 mb-6">Proyección de la carga pendiente frente a la capacidad disponible, por sector y a nivel planta.</p>
 
+      {!canEdit && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar la capacidad configurada en este módulo.
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-6 overflow-hidden">
         <button
           onClick={() => setOrderPickerOpen(!orderPickerOpen)}
@@ -256,7 +266,8 @@ export default function CapacidadMensualPage() {
               defaultValue={plantSettings.totalOperators || ''}
               onBlur={(e) => savePlantSetting('totalOperators', e.target.value)}
               placeholder="0"
-              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1"
+              disabled={!canEdit}
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
           <div>
@@ -267,7 +278,8 @@ export default function CapacidadMensualPage() {
               defaultValue={plantSettings.hoursPerOperator || ''}
               onBlur={(e) => savePlantSetting('hoursPerOperator', e.target.value)}
               placeholder="8"
-              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1"
+              disabled={!canEdit}
+              className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm mt-1 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -316,7 +328,8 @@ export default function CapacidadMensualPage() {
                   step={0.5}
                   defaultValue={hoursPerDay}
                   onBlur={(e) => saveCapacity(sector.id, e.target.value)}
-                  className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
+                  disabled={!canEdit}
+                  className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
             </div>
