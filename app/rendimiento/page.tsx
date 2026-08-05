@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,6 +37,9 @@ const DAY_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 const MONTH_NAMES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
 export default function RendimientoPage() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1'
+
   const [monthValue, setMonthValue] = useState(currentMonthValue())
   const [operators, setOperators] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
@@ -192,6 +196,12 @@ export default function RendimientoPage() {
       <p className="text-sm text-slate-500 mb-1">Cumplimiento semanal y cálculo de premio por producción.</p>
       <p className="text-xs text-slate-400 mb-6">Click en el nombre para ver el mes completo. Click en una semana o un día para ver el detalle.</p>
 
+      {!canEdit && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar este módulo.
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mb-6">
         <label className="text-sm font-medium text-slate-700">Mes</label>
         <input type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}
@@ -243,19 +253,25 @@ export default function RendimientoPage() {
                   ))}
                   <td className="p-3 text-center font-semibold text-slate-700 border-l border-slate-100">{metCount} / {mondays.length}</td>
                   <td className="p-3 text-center">
-                    {editingBonus === op.id ? (
-                      <input
-                        type="number"
-                        defaultValue={op.weekly_bonus_amount}
-                        autoFocus
-                        onBlur={(e) => saveBonus(op.id, e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-20 text-center rounded-md border border-slate-300 py-1"
-                      />
+                    {canEdit ? (
+                      editingBonus === op.id ? (
+                        <input
+                          type="number"
+                          defaultValue={op.weekly_bonus_amount}
+                          autoFocus
+                          onBlur={(e) => saveBonus(op.id, e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                          className="w-20 text-center rounded-md border border-slate-300 py-1"
+                        />
+                      ) : (
+                        <button onClick={() => setEditingBonus(op.id)} className="text-slate-600 hover:underline">
+                          ${Number(op.weekly_bonus_amount || 0).toLocaleString('es-AR')}
+                        </button>
+                      )
                     ) : (
-                      <button onClick={() => setEditingBonus(op.id)} className="text-slate-600 hover:underline">
+                      <span className="text-slate-500">
                         ${Number(op.weekly_bonus_amount || 0).toLocaleString('es-AR')}
-                      </button>
+                      </span>
                     )}
                   </td>
                   <td className="p-3 text-center font-semibold text-emerald-700">
@@ -310,11 +326,13 @@ export default function RendimientoPage() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs font-medium text-blue-700 mb-1">★ Excepción aprobada</p>
                 <p className="text-sm text-slate-700 mb-2">"{weekModalException.reason}"</p>
-                <button onClick={() => removeException(weekModalException.id)} className="text-xs text-rose-500 hover:underline">
-                  Quitar excepción
-                </button>
+                {canEdit && (
+                  <button onClick={() => removeException(weekModalException.id)} className="text-xs text-rose-500 hover:underline">
+                    Quitar excepción
+                  </button>
+                )}
               </div>
-            ) : weekModalNaturalStatus === 'not-met' ? (
+            ) : weekModalNaturalStatus === 'not-met' && canEdit ? (
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <p className="text-xs font-medium text-slate-600 mb-2">Esta semana no se cumplió automáticamente. Si corresponde una excepción, escribí el motivo:</p>
                 <textarea
