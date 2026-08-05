@@ -66,7 +66,7 @@ export default function PlanDiarioPage() {
 
     const { data: activeOrders } = await supabase
       .from('orders')
-      .select('id, order_number, status, completed_at, products(name)')
+      .select('id, order_number, status, completed_at, lot_quantity, products(name)')
       .in('status', ['pending', 'in_progress'])
       .order('priority_rank', { ascending: true, nullsFirst: false })
 
@@ -78,7 +78,7 @@ export default function PlanDiarioPage() {
     if (missingIds.length > 0) {
       const { data } = await supabase
         .from('orders')
-        .select('id, order_number, status, completed_at, products(name)')
+        .select('id, order_number, status, completed_at, lot_quantity, products(name)')
         .in('id', missingIds)
       completedWithTasks = (data || []).sort((a: any, b: any) =>
         new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime()
@@ -148,7 +148,6 @@ export default function PlanDiarioPage() {
   }
 
   function dayResult(orderId: string, date: string) {
-    // No mostrar nada más allá de la última fecha con una tarea real cargada para esta OP
     const maxTaskDate = maxTaskDateFor(orderId)
     if (!maxTaskDate || date > maxTaskDate) return null
 
@@ -303,7 +302,10 @@ export default function PlanDiarioPage() {
                         <span className="text-emerald-600 text-[10px] bg-emerald-50 px-1 rounded">completada</span>
                       )}
                     </div>
-                    <div className="text-slate-700 text-xs">{order.products?.name}</div>
+                    <div className="text-slate-700 text-xs">
+                      {order.products?.name}
+                      {order.lot_quantity != null && <span className="text-slate-400"> ({order.lot_quantity})</span>}
+                    </div>
                   </td>
                   {dates.map((d) => {
                     const r = dayResult(order.id, d)
