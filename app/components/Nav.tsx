@@ -3,22 +3,26 @@ import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { useAuth } from './AuthGate'
 
-const tabs = [
-  { href: '/', label: 'Cola de Producción' },
-  { href: '/control-general', label: 'Avance de Producción' },
-  { href: '/plan-diario', label: 'Plan Diario' },
-  { href: '/balance-mensual', label: 'Capacidad Mensual' },
-  { href: '/plan-turnos', label: 'Turnos y Operarios' },
-  { href: '/rendimiento', label: 'Rendimiento de Operarios' },
-  { href: '/historial', label: 'Historial de Órdenes' },
-  { href: '/base-datos', label: 'Catálogo de Productos' },
-  { href: '/dashboard', label: 'Dashboard' },
+const allTabs = [
+  { href: '/', label: 'Cola de Producción', roles: ['perfil_1', 'perfil_2', 'perfil_3', 'perfil_4'] },
+  { href: '/control-general', label: 'Avance de Producción', roles: ['perfil_1', 'perfil_2', 'perfil_3', 'perfil_4'] },
+  { href: '/plan-diario', label: 'Plan Diario', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/balance-mensual', label: 'Capacidad Mensual', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/plan-turnos', label: 'Turnos y Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/rendimiento', label: 'Rendimiento de Operarios', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/historial', label: 'Historial de Órdenes', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/base-datos', label: 'Catálogo de Productos', roles: ['perfil_1', 'perfil_2', 'perfil_3'] },
+  { href: '/dashboard', label: 'Dashboard', roles: ['perfil_1', 'perfil_3'] },
 ]
 
 export default function Nav() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const { role, fullName, logout } = useAuth()
+
+  const tabs = allTabs.filter((t) => role && t.roles.includes(role))
 
   return (
     <nav className="bg-slate-900 sticky top-0 z-40">
@@ -44,6 +48,11 @@ export default function Nav() {
               </Link>
             )
           })}
+        </div>
+
+        <div className="hidden md:flex items-center gap-3">
+          <span className="text-xs text-slate-400">{fullName}</span>
+          <button onClick={logout} className="text-xs text-slate-400 hover:text-white">Salir</button>
         </div>
 
         <button
@@ -72,6 +81,7 @@ export default function Nav() {
               </Link>
             )
           })}
+          <button onClick={logout} className="block py-2.5 text-sm text-rose-400 w-full text-left">Salir</button>
         </div>
       )}
     </nav>
