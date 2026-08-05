@@ -4,34 +4,40 @@ import { createClient } from '@supabase/supabase-js'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useAuth } from './components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-function SortableCard({ order, onEdit, onDelete }: { order: any; onEdit: (o: any) => void; onDelete: (id: string) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: order.id })
+function SortableCard({ order, onEdit, onDelete, canEdit }: { order: any; onEdit: (o: any) => void; onDelete: (id: string) => void; canEdit: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: order.id, disabled: !canEdit })
   const style = { transform: CSS.Transform.toString(transform), transition }
   return (
     <div ref={setNodeRef} style={style}
       className="bg-white border border-slate-200 rounded-xl p-4 mb-3 shadow-sm flex items-start justify-between gap-3">
-      <div {...attributes} {...listeners} className="flex-1 cursor-grab active:cursor-grabbing">
+      <div {...(canEdit ? { ...attributes, ...listeners } : {})} className={`flex-1 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}>
         <p className="text-xs font-semibold text-slate-400">N° OP {order.order_number}</p>
         <p className="text-lg font-semibold text-slate-800">{order.products?.name || 'Producto no encontrado'}</p>
         <p className="text-sm text-slate-500">Cliente: {order.client_name}</p>
         <p className="text-sm text-slate-500">Cantidad: {order.lot_quantity}</p>
         {order.notes && <p className="text-sm text-slate-400 italic mt-1">Obs: {order.notes}</p>}
       </div>
-      <div className="flex flex-col gap-1 shrink-0">
-        <button onClick={() => onEdit(order)} className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-md hover:bg-slate-200">Editar</button>
-        <button onClick={() => onDelete(order.id)} className="text-xs bg-rose-50 text-rose-600 px-3 py-1 rounded-md hover:bg-rose-100">Eliminar</button>
-      </div>
+      {canEdit && (
+        <div className="flex flex-col gap-1 shrink-0">
+          <button onClick={() => onEdit(order)} className="text-xs bg-slate-100 text-slate-600 px-3 py-1 rounded-md hover:bg-slate-200">Editar</button>
+          <button onClick={() => onDelete(order.id)} className="text-xs bg-rose-50 text-rose-600 px-3 py-1 rounded-md hover:bg-rose-100">Eliminar</button>
+        </div>
+      )}
     </div>
   )
 }
 
 export default function Home() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1' || role === 'perfil_2'
+
   const [orders, setOrders] = useState<any[]>([])
   const [completedOrders, setCompletedOrders] = useState<any[]>([])
   const [products, setProducts] = useState<any[]>([])
@@ -111,7 +117,6 @@ export default function Home() {
     }
   }
 
-  // Ahora, en vez de completar directo, abre el cartel de confirmación
   async function askComplete(order: any) {
     const { data } = await supabase
       .from('order_weighted_progress')
@@ -171,44 +176,52 @@ export default function Home() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Cola de Producción</h1>
       <p className="text-sm text-slate-500 mb-6">Cargá y priorizá las órdenes de producción activas.</p>
 
-      <form onSubmit={handleCreateOrder} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-8">
-        <h2 className="font-semibold text-slate-700 mb-3">Nueva Orden de Producción</h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <input placeholder="N° OP" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
-          <div className="relative">
-            <input
-              placeholder="Buscar producto..."
-              value={productSearch}
-              onChange={(e) => { setProductSearch(e.target.value); setProductId(''); setShowSuggestions(true) }}
-              onFocus={() => setShowSuggestions(true)}
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
-            />
-            {showSuggestions && productSearch.length > 0 && !productId && (
-              <div className="absolute z-20 top-full mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
-                {filteredProducts.length === 0 ? (
-                  <div className="p-2 text-xs text-slate-400">Sin resultados</div>
-                ) : filteredProducts.map((p) => (
-                  <div key={p.id} onClick={() => selectProduct(p)} className="px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer">
-                    {p.name}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <input placeholder="Cantidad" type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
-          <input placeholder="Cliente" value={clientName} onChange={(e) => setClientName(e.target.value)}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
-          <input placeholder="Obs (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+      {!canEdit && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar este módulo.
         </div>
-        <button type="submit" className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700">
-          Agregar a la Cola
-        </button>
-      </form>
+      )}
 
-      <h2 className="font-semibold text-slate-700 mb-3">Cola de Producción — arrastrá para priorizar</h2>
+      {canEdit && (
+        <form onSubmit={handleCreateOrder} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-8">
+          <h2 className="font-semibold text-slate-700 mb-3">Nueva Orden de Producción</h2>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <input placeholder="N° OP" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+            <div className="relative">
+              <input
+                placeholder="Buscar producto..."
+                value={productSearch}
+                onChange={(e) => { setProductSearch(e.target.value); setProductId(''); setShowSuggestions(true) }}
+                onFocus={() => setShowSuggestions(true)}
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
+              />
+              {showSuggestions && productSearch.length > 0 && !productId && (
+                <div className="absolute z-20 top-full mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
+                  {filteredProducts.length === 0 ? (
+                    <div className="p-2 text-xs text-slate-400">Sin resultados</div>
+                  ) : filteredProducts.map((p) => (
+                    <div key={p.id} onClick={() => selectProduct(p)} className="px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer">
+                      {p.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <input placeholder="Cantidad" type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+            <input placeholder="Cliente" value={clientName} onChange={(e) => setClientName(e.target.value)}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+            <input placeholder="Obs (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+          </div>
+          <button type="submit" className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700">
+            Agregar a la Cola
+          </button>
+        </form>
+      )}
+
+      <h2 className="font-semibold text-slate-700 mb-3">Cola de Producción{canEdit ? ' — arrastrá para priorizar' : ''}</h2>
       {loading ? (
         <p className="text-slate-500">Cargando...</p>
       ) : orders.length === 0 ? (
@@ -219,11 +232,13 @@ export default function Home() {
             <div className="mb-8">
               {orders.map((order) => (
                 <div key={order.id} className="flex items-center gap-2">
-                  <div className="flex-1"><SortableCard order={order} onEdit={openEdit} onDelete={handleDelete} /></div>
-                  <button onClick={() => askComplete(order)}
-                    className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-md hover:bg-emerald-700 mb-3">
-                    Completar
-                  </button>
+                  <div className="flex-1"><SortableCard order={order} onEdit={openEdit} onDelete={handleDelete} canEdit={canEdit} /></div>
+                  {canEdit && (
+                    <button onClick={() => askComplete(order)}
+                      className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-md hover:bg-emerald-700 mb-3">
+                      Completar
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -244,9 +259,11 @@ export default function Home() {
                 <p className="text-sm text-slate-500">Cliente: {order.client_name} — Cantidad: {order.lot_quantity}</p>
                 {order.notes && <p className="text-sm italic text-slate-400">Obs: {order.notes}</p>}
               </div>
-              <button onClick={() => handleReopen(order.id)} className="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md hover:bg-slate-300 shrink-0">
-                Reabrir
-              </button>
+              {canEdit && (
+                <button onClick={() => handleReopen(order.id)} className="text-xs bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md hover:bg-slate-300 shrink-0">
+                  Reabrir
+                </button>
+              )}
             </div>
           ))}
         </div>
