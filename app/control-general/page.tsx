@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +9,9 @@ const supabase = createClient(
 )
 
 export default function ControlGeneralPage() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1' || role === 'perfil_2'
+
   const [sectors, setSectors] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [progressRows, setProgressRows] = useState<any[]>([])
@@ -100,6 +104,12 @@ export default function ControlGeneralPage() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Avance de Producción</h1>
       <p className="text-sm text-slate-500 mb-4">Estado actual de las órdenes en curso, por sector.</p>
 
+      {!canEdit && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar este módulo.
+        </div>
+      )}
+
       <div className="flex gap-4 mb-5 text-xs text-slate-600">
         <span className="flex items-center gap-1.5"><i className="inline-block w-3 h-3 rounded-full bg-slate-100 border border-slate-300"></i> Sin iniciar</span>
         <span className="flex items-center gap-1.5"><i className="inline-block w-3 h-3 rounded-full bg-amber-200"></i> En curso</span>
@@ -149,7 +159,8 @@ export default function ControlGeneralPage() {
                               min={0}
                               onFocus={(e) => e.target.select()}
                               onChange={(e) => updateQuantity(rows[0].id, parseInt(e.target.value || '0', 10), order.id, order.order_number)}
-                              className="w-10 text-center bg-transparent outline-none font-medium"
+                              disabled={!canEdit}
+                              className="w-10 text-center bg-transparent outline-none font-medium disabled:cursor-not-allowed"
                             />
                           </div>
                         ) : (
@@ -194,7 +205,8 @@ export default function ControlGeneralPage() {
                         min={0}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => updateQuantity(r.id, parseInt(e.target.value || '0', 10), modalInfo.orderId, '')}
-                        className="w-10 text-center bg-transparent outline-none font-medium"
+                        disabled={!canEdit}
+                        className="w-10 text-center bg-transparent outline-none font-medium disabled:cursor-not-allowed"
                       />
                       <span className="text-xs opacity-70">/ {r.quantity_required}</span>
                     </div>
