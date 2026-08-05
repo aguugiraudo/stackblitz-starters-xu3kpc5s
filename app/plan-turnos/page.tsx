@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +20,9 @@ function formatDateShort(iso: string) {
 const SERVICE_VALUE = '__SERVICIO__'
 
 export default function PlanTurnosPage() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1' || role === 'perfil_2'
+
   const [operators, setOperators] = useState<any[]>([])
   const [newOperatorName, setNewOperatorName] = useState('')
 
@@ -344,10 +348,16 @@ export default function PlanTurnosPage() {
   })
 
   const ClockButton = ({ t }: { t: any }) => (
-    <button onClick={() => openClock(t)} title="Registrar hora de inicio/fin"
-      className={`text-sm ${t.actual_start_time ? 'text-blue-600' : 'text-slate-300 hover:text-slate-500'}`}>
-      🕐
-    </button>
+    canEdit ? (
+      <button onClick={() => openClock(t)} title="Registrar hora de inicio/fin"
+        className={`text-sm ${t.actual_start_time ? 'text-blue-600' : 'text-slate-300 hover:text-slate-500'}`}>
+        🕐
+      </button>
+    ) : (
+      <span title="Hora de inicio/fin" className={`text-sm ${t.actual_start_time ? 'text-blue-600' : 'text-slate-300'}`}>
+        🕐
+      </span>
+    )
   )
 
   return (
@@ -355,24 +365,32 @@ export default function PlanTurnosPage() {
       <h1 className="text-xl md:text-2xl font-semibold text-slate-800 mb-1">Turnos y Operarios</h1>
       <p className="text-sm text-slate-500 mb-6">Asigná tareas diarias por operario y registrá lo realmente producido.</p>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
-        <h2 className="font-semibold text-slate-700 mb-3">Operarios</h2>
-        <div className="flex flex-col sm:flex-row gap-2 mb-3">
-          <input placeholder="Nombre y apellido" value={newOperatorName} onChange={(e) => setNewOperatorName(e.target.value)}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 min-w-0" />
-          <button onClick={addOperator} className="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 shrink-0">
-            Agregar
-          </button>
+      {!canEdit && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar este módulo.
         </div>
-        <div className="flex flex-wrap gap-2">
-          {operators.map((op) => (
-            <span key={op.id} className="inline-flex items-center gap-2 bg-slate-100 text-slate-700 rounded-full pl-3 pr-1 py-1 text-xs max-w-full sm:max-w-[220px]">
-              <span className="truncate" title={op.full_name}>{op.full_name}</span>
-              <button onClick={() => deactivateOperator(op.id)} className="text-slate-400 hover:text-rose-600 rounded-full w-4 h-4 flex items-center justify-center shrink-0">✕</button>
-            </span>
-          ))}
+      )}
+
+      {canEdit && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
+          <h2 className="font-semibold text-slate-700 mb-3">Operarios</h2>
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <input placeholder="Nombre y apellido" value={newOperatorName} onChange={(e) => setNewOperatorName(e.target.value)}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 min-w-0" />
+            <button onClick={addOperator} className="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 shrink-0">
+              Agregar
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {operators.map((op) => (
+              <span key={op.id} className="inline-flex items-center gap-2 bg-slate-100 text-slate-700 rounded-full pl-3 pr-1 py-1 text-xs max-w-full sm:max-w-[220px]">
+                <span className="truncate" title={op.full_name}>{op.full_name}</span>
+                <button onClick={() => deactivateOperator(op.id)} className="text-slate-400 hover:text-rose-600 rounded-full w-4 h-4 flex items-center justify-center shrink-0">✕</button>
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex items-center gap-3 mb-4">
         <label className="text-sm font-medium text-slate-700">Fecha</label>
@@ -380,132 +398,134 @@ export default function PlanTurnosPage() {
           className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
-        <h2 className="font-semibold text-slate-700 mb-3">Asignar tarea</h2>
+      {canEdit && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 md:p-5 mb-6">
+          <h2 className="font-semibold text-slate-700 mb-3">Asignar tarea</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          <div className="relative min-w-0">
-            <input
-              placeholder="Buscar operario..."
-              value={fOperatorSearch}
-              onChange={(e) => { setFOperatorSearch(e.target.value); setFOperator(''); setShowOperatorList(true) }}
-              onFocus={() => setShowOperatorList(true)}
-              title={fOperatorSearch}
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0 truncate"
-            />
-            {showOperatorList && !fOperator && (
-              <div className="absolute z-20 top-full mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
-                {filteredOperators.length === 0 ? (
-                  <div className="p-2 text-xs text-slate-400">Sin resultados</div>
-                ) : filteredOperators.map((op) => (
-                  <div key={op.id} onClick={() => selectOperator(op)} title={op.full_name}
-                    className="px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer truncate">
-                    {op.full_name}
-                  </div>
-                ))}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+            <div className="relative min-w-0">
+              <input
+                placeholder="Buscar operario..."
+                value={fOperatorSearch}
+                onChange={(e) => { setFOperatorSearch(e.target.value); setFOperator(''); setShowOperatorList(true) }}
+                onFocus={() => setShowOperatorList(true)}
+                title={fOperatorSearch}
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0 truncate"
+              />
+              {showOperatorList && !fOperator && (
+                <div className="absolute z-20 top-full mt-1 w-full max-h-48 overflow-y-auto bg-white border border-slate-200 rounded-md shadow-lg">
+                  {filteredOperators.length === 0 ? (
+                    <div className="p-2 text-xs text-slate-400">Sin resultados</div>
+                  ) : filteredOperators.map((op) => (
+                    <div key={op.id} onClick={() => selectOperator(op)} title={op.full_name}
+                      className="px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer truncate">
+                      {op.full_name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-1 min-w-0">
+              <input placeholder={`Hs disponibles el ${formatDateShort(planDate)}`} type="number" step={0.5} value={fAvailableHours}
+                onChange={(e) => setFAvailableHours(e.target.value)}
+                disabled={!fOperator}
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 min-w-0 disabled:bg-slate-50" />
+              <button onClick={saveAvailability} disabled={!fOperator}
+                className="text-xs bg-slate-700 text-white px-3 rounded-md hover:bg-slate-800 disabled:opacity-40 shrink-0">
+                Guardar
+              </button>
+            </div>
+
+            {fOperator && (
+              <div className="flex items-center text-sm min-w-0">
+                <span className={`font-medium ${availableForSelected != null && hoursSoFar > availableForSelected ? 'text-rose-600' : 'text-slate-700'}`}>
+                  {hoursSoFar} / {availableForSelected ?? '—'} hs programadas
+                </span>
               </div>
             )}
           </div>
 
-          <div className="flex gap-1 min-w-0">
-            <input placeholder={`Hs disponibles el ${formatDateShort(planDate)}`} type="number" step={0.5} value={fAvailableHours}
-              onChange={(e) => setFAvailableHours(e.target.value)}
-              disabled={!fOperator}
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm flex-1 min-w-0 disabled:bg-slate-50" />
-            <button onClick={saveAvailability} disabled={!fOperator}
-              className="text-xs bg-slate-700 text-white px-3 rounded-md hover:bg-slate-800 disabled:opacity-40 shrink-0">
-              Guardar
-            </button>
-          </div>
-
-          {fOperator && (
-            <div className="flex items-center text-sm min-w-0">
-              <span className={`font-medium ${availableForSelected != null && hoursSoFar > availableForSelected ? 'text-rose-600' : 'text-slate-700'}`}>
-                {hoursSoFar} / {availableForSelected ?? '—'} hs programadas
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-2">
-          <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFOrder(''); setFComponent('') }}
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
-            <option value="">Sector...</option>
-            {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-
-          <select
-            value={fOrder}
-            onChange={(e) => { setFOrder(e.target.value); setFComponent('') }}
-            disabled={!fSector}
-            className={`border rounded-md px-2 py-1.5 text-sm disabled:bg-slate-50 min-w-0 truncate w-full ${
-              isService ? 'border-blue-400 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300'
-            }`}
-          >
-            <option value="">OP / Servicio...</option>
-            <option value={SERVICE_VALUE}>🔧 Servicio (sin OP)</option>
-            {ordersForSector.length > 0 && (
-              <optgroup label="Órdenes pendientes">
-                {ordersForSector.map((o) => <option key={o.id} value={o.id}>#{o.order_number} — {o.products?.name}</option>)}
-              </optgroup>
-            )}
-          </select>
-
-          {!isService && needsComponent ? (
-            <select value={fComponent} onChange={(e) => setFComponent(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
-              <option value="">Componente...</option>
-              {rowsForOrderSector.map((r) => <option key={r.component_id} value={r.component_id}>{r.component_name}</option>)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+            <select value={fSector} onChange={(e) => { setFSector(e.target.value); setFOrder(''); setFComponent('') }}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
+              <option value="">Sector...</option>
+              {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-          ) : !isService ? <div className="hidden md:block" /> : null}
 
-          {isService ? (
-            <input placeholder="Horas dedicadas" type="number" step={0.5} value={fServiceHours}
-              onChange={(e) => setFServiceHours(e.target.value)} className="border border-blue-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
-          ) : (
-            <div className="min-w-0">
-              <input placeholder="Cantidad a programar" type="number" value={fQuantity}
-                max={pendingForSelectedRow ?? undefined}
-                onChange={(e) => setFQuantity(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
-              {pendingForSelectedRow != null && (
-                <p className="text-xs text-slate-400 mt-0.5">Pendiente: {pendingForSelectedRow} u.</p>
+            <select
+              value={fOrder}
+              onChange={(e) => { setFOrder(e.target.value); setFComponent('') }}
+              disabled={!fSector}
+              className={`border rounded-md px-2 py-1.5 text-sm disabled:bg-slate-50 min-w-0 truncate w-full ${
+                isService ? 'border-blue-400 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300'
+              }`}
+            >
+              <option value="">OP / Servicio...</option>
+              <option value={SERVICE_VALUE}>🔧 Servicio (sin OP)</option>
+              {ordersForSector.length > 0 && (
+                <optgroup label="Órdenes pendientes">
+                  {ordersForSector.map((o) => <option key={o.id} value={o.id}>#{o.order_number} — {o.products?.name}</option>)}
+                </optgroup>
               )}
+            </select>
+
+            {!isService && needsComponent ? (
+              <select value={fComponent} onChange={(e) => setFComponent(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
+                <option value="">Componente...</option>
+                {rowsForOrderSector.map((r) => <option key={r.component_id} value={r.component_id}>{r.component_name}</option>)}
+              </select>
+            ) : !isService ? <div className="hidden md:block" /> : null}
+
+            {isService ? (
+              <input placeholder="Horas dedicadas" type="number" step={0.5} value={fServiceHours}
+                onChange={(e) => setFServiceHours(e.target.value)} className="border border-blue-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+            ) : (
+              <div className="min-w-0">
+                <input placeholder="Cantidad a programar" type="number" value={fQuantity}
+                  max={pendingForSelectedRow ?? undefined}
+                  onChange={(e) => setFQuantity(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+                {pendingForSelectedRow != null && (
+                  <p className="text-xs text-slate-400 mt-0.5">Pendiente: {pendingForSelectedRow} u.</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {isService && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+              <input placeholder="Cantidad de servicios (opcional)" type="number" value={fServiceQty}
+                onChange={(e) => setFServiceQty(e.target.value)} className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+              <input placeholder="Obs. (opcional)" value={fServiceNotes} onChange={(e) => setFServiceNotes(e.target.value)}
+                className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
             </div>
           )}
+
+          {!isService && taskHours != null && (
+            <p className="text-xs text-slate-500 mb-2">
+              Esta tarea representa <strong className="text-slate-700">{taskHours} hs</strong>.
+              {availableForSelected != null && (
+                <> Total si la confirmás: <strong className={hoursSoFar + taskHours > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
+                  {Math.round((hoursSoFar + taskHours) * 100) / 100} / {availableForSelected} hs
+                </strong>{hoursSoFar + taskHours > availableForSelected ? ' — supera la disponibilidad' : ''}.</>
+              )}
+            </p>
+          )}
+          {isService && fServiceHours && availableForSelected != null && (
+            <p className="text-xs text-slate-500 mb-2">
+              Total si confirmás: <strong className={hoursSoFar + parseFloat(fServiceHours || '0') > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
+                {Math.round((hoursSoFar + parseFloat(fServiceHours || '0')) * 100) / 100} / {availableForSelected} hs
+              </strong>
+            </p>
+          )}
+
+          <button onClick={handleAssign} className={`mt-2 w-full sm:w-auto text-white px-4 py-2 rounded-md text-sm font-medium ${
+            isService ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+          }`}>
+            {isService ? 'Asignar servicio' : 'Asignar tarea'}
+          </button>
         </div>
-
-        {isService && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
-            <input placeholder="Cantidad de servicios (opcional)" type="number" value={fServiceQty}
-              onChange={(e) => setFServiceQty(e.target.value)} className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
-            <input placeholder="Obs. (opcional)" value={fServiceNotes} onChange={(e) => setFServiceNotes(e.target.value)}
-              className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
-          </div>
-        )}
-
-        {!isService && taskHours != null && (
-          <p className="text-xs text-slate-500 mb-2">
-            Esta tarea representa <strong className="text-slate-700">{taskHours} hs</strong>.
-            {availableForSelected != null && (
-              <> Total si la confirmás: <strong className={hoursSoFar + taskHours > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
-                {Math.round((hoursSoFar + taskHours) * 100) / 100} / {availableForSelected} hs
-              </strong>{hoursSoFar + taskHours > availableForSelected ? ' — supera la disponibilidad' : ''}.</>
-            )}
-          </p>
-        )}
-        {isService && fServiceHours && availableForSelected != null && (
-          <p className="text-xs text-slate-500 mb-2">
-            Total si confirmás: <strong className={hoursSoFar + parseFloat(fServiceHours || '0') > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
-              {Math.round((hoursSoFar + parseFloat(fServiceHours || '0')) * 100) / 100} / {availableForSelected} hs
-            </strong>
-          </p>
-        )}
-
-        <button onClick={handleAssign} className={`mt-2 w-full sm:w-auto text-white px-4 py-2 rounded-md text-sm font-medium ${
-          isService ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
-        }`}>
-          {isService ? 'Asignar servicio' : 'Asignar tarea'}
-        </button>
-      </div>
+      )}
 
       <h2 className="font-semibold text-slate-700 mb-3">Tareas del {planDate}</h2>
       {Object.keys(tasksByOperator).length === 0 ? (
@@ -554,7 +574,8 @@ export default function PlanTurnosPage() {
                                   placeholder="—"
                                   onBlur={(e) => saveActual(t.id, e.target.value)}
                                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                                  className="w-14 text-center rounded-md border border-slate-300 py-1"
+                                  disabled={!canEdit}
+                                  className="w-14 text-center rounded-md border border-slate-300 py-1 disabled:bg-slate-50 disabled:text-slate-400"
                                 />
                                 <ClockButton t={t} />
                               </div>
@@ -566,11 +587,14 @@ export default function PlanTurnosPage() {
                                 placeholder="Ej: reunión 20 min"
                                 onBlur={(e) => saveNotes(t.id, e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                                className="w-full rounded-md border border-slate-300 py-1 px-2 text-xs"
+                                disabled={!canEdit}
+                                className="w-full rounded-md border border-slate-300 py-1 px-2 text-xs disabled:bg-slate-50 disabled:text-slate-400"
                               />
                             </td>
                             <td className="py-2 text-right">
-                              <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline">Eliminar</button>
+                              {canEdit && (
+                                <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline">Eliminar</button>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -587,7 +611,9 @@ export default function PlanTurnosPage() {
                                 #{t.orders?.order_number} — {t.orders?.products?.name}
                               </p>
                             </div>
-                            <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                            {canEdit && (
+                              <button onClick={() => deleteTask(t.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                            )}
                           </div>
                           <div className="flex items-center gap-4 mb-2">
                             <div>
@@ -603,7 +629,8 @@ export default function PlanTurnosPage() {
                                   placeholder="—"
                                   onBlur={(e) => saveActual(t.id, e.target.value)}
                                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                                  className="w-14 text-center rounded-md border border-slate-300 py-1 text-sm"
+                                  disabled={!canEdit}
+                                  className="w-14 text-center rounded-md border border-slate-300 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400"
                                 />
                                 <ClockButton t={t} />
                               </div>
@@ -615,7 +642,8 @@ export default function PlanTurnosPage() {
                             placeholder="Obs. (ej: reunión 20 min)"
                             onBlur={(e) => saveNotes(t.id, e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                            className="w-full rounded-md border border-slate-300 py-1.5 px-2 text-xs min-w-0"
+                            disabled={!canEdit}
+                            className="w-full rounded-md border border-slate-300 py-1.5 px-2 text-xs min-w-0 disabled:bg-slate-50 disabled:text-slate-400"
                           />
                         </div>
                       ))}
@@ -636,7 +664,9 @@ export default function PlanTurnosPage() {
                             </p>
                             {s.notes && <p className="text-xs text-slate-500 italic">"{s.notes}"</p>}
                           </div>
-                          <button onClick={() => deleteServiceTask(s.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                          {canEdit && (
+                            <button onClick={() => deleteServiceTask(s.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                          )}
                         </div>
                       ))}
                     </div>
