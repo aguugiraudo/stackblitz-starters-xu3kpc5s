@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '../components/AuthGate'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +9,9 @@ const supabase = createClient(
 )
 
 export default function CatalogoProductosPage() {
+  const { role } = useAuth()
+  const canEdit = role === 'perfil_1'
+
   const [products, setProducts] = useState<any[]>([])
   const [sectors, setSectors] = useState<any[]>([])
   const [matrix, setMatrix] = useState<any[]>([])
@@ -205,6 +209,12 @@ export default function CatalogoProductosPage() {
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Catálogo de Productos</h1>
       <p className="text-sm text-slate-500 mb-6">Tiempos estándar por producto y sector. Click en un producto para editar el detalle.</p>
 
+      {!canEdit && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-md px-3 py-2">
+          Modo solo lectura — no tenés permisos para editar este módulo.
+        </div>
+      )}
+
       {!selectedProduct ? (
         <>
           <div className="flex items-center justify-between mb-3">
@@ -214,9 +224,11 @@ export default function CatalogoProductosPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="border border-slate-300 rounded-md px-3 py-2 text-sm w-80"
             />
-            <button onClick={() => setShowNewProduct(true)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700">
-              + Nuevo producto
-            </button>
+            {canEdit && (
+              <button onClick={() => setShowNewProduct(true)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700">
+                + Nuevo producto
+              </button>
+            )}
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
@@ -267,7 +279,8 @@ export default function CatalogoProductosPage() {
                 defaultValue={selectedProduct.category || ''}
                 onBlur={(e) => saveCategory(e.target.value)}
                 placeholder="Ej: FOGONEROS"
-                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
+                disabled={!canEdit}
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
             <div>
@@ -277,7 +290,8 @@ export default function CatalogoProductosPage() {
                 defaultValue={selectedProduct.price ?? ''}
                 onBlur={(e) => savePrice(e.target.value)}
                 placeholder="Sin definir"
-                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full"
+                disabled={!canEdit}
+                className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
           </div>
@@ -316,7 +330,8 @@ export default function CatalogoProductosPage() {
                               type="number"
                               defaultValue={productRow.standard_time_minutes}
                               onBlur={(e) => saveProductTime(sector.id, productRow.id, parseFloat(e.target.value || '0'))}
-                              className="w-20 text-center rounded-md border border-slate-300 py-1"
+                              disabled={!canEdit}
+                              className="w-20 text-center rounded-md border border-slate-300 py-1 disabled:bg-slate-50 disabled:text-slate-400"
                             />
                             <span className="text-xs text-slate-400">min</span>
                           </div>
@@ -324,7 +339,7 @@ export default function CatalogoProductosPage() {
                             ver historial
                           </button>
                         </div>
-                      ) : (
+                      ) : canEdit ? (
                         <div className="flex items-center justify-center gap-1">
                           <input
                             type="number"
@@ -340,6 +355,8 @@ export default function CatalogoProductosPage() {
                             Guardar
                           </button>
                         </div>
+                      ) : (
+                        <span className="text-slate-300 text-xs">Sin configurar</span>
                       )}
                     </td>
                     <td className="py-3 text-right">
@@ -355,12 +372,14 @@ export default function CatalogoProductosPage() {
             </tbody>
           </table>
 
-          <div className="mt-8 pt-4 border-t border-dashed border-rose-200">
-            <p className="text-xs text-rose-400 mb-2">Zona de peligro</p>
-            <button onClick={openDeleteModal} className="text-xs text-rose-500 border border-rose-200 px-3 py-1.5 rounded-md hover:bg-rose-50">
-              Eliminar este producto...
-            </button>
-          </div>
+          {canEdit && (
+            <div className="mt-8 pt-4 border-t border-dashed border-rose-200">
+              <p className="text-xs text-rose-400 mb-2">Zona de peligro</p>
+              <button onClick={openDeleteModal} className="text-xs text-rose-500 border border-rose-200 px-3 py-1.5 rounded-md hover:bg-rose-50">
+                Eliminar este producto...
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -417,7 +436,8 @@ export default function CatalogoProductosPage() {
                           type="number"
                           defaultValue={comp.qty_per_product}
                           onBlur={(e) => saveComponentQty(comp.id, parseFloat(e.target.value || '1'))}
-                          className="w-14 text-center rounded border border-slate-300 py-0.5"
+                          disabled={!canEdit}
+                          className="w-14 text-center rounded border border-slate-300 py-0.5 disabled:bg-slate-50 disabled:text-slate-400"
                         />
                       </div>
                     </div>
@@ -427,7 +447,8 @@ export default function CatalogoProductosPage() {
                           type="number"
                           defaultValue={t.standard_time_minutes}
                           onBlur={(e) => saveComponentTime(t.id, parseFloat(e.target.value || '0'))}
-                          className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm"
+                          disabled={!canEdit}
+                          className="w-16 text-center rounded-md border border-slate-300 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-400"
                         />
                         <span className="text-xs text-slate-400">min</span>
                       </div>
@@ -440,20 +461,22 @@ export default function CatalogoProductosPage() {
               })}
             </div>
 
-            <div className="mt-4 pt-4 border-t border-slate-200">
-              <p className="text-xs font-medium text-slate-600 mb-2">Agregar componente nuevo</p>
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                <input placeholder="Nombre" value={newComponentName} onChange={(e) => setNewComponentName(e.target.value)}
-                  className="col-span-1 border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
-                <input placeholder="Cant./prod" type="number" value={newComponentQty} onChange={(e) => setNewComponentQty(e.target.value)}
-                  className="border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
-                <input placeholder="Minutos" type="number" value={newComponentTime} onChange={(e) => setNewComponentTime(e.target.value)}
-                  className="border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
+            {canEdit && (
+              <div className="mt-4 pt-4 border-t border-slate-200">
+                <p className="text-xs font-medium text-slate-600 mb-2">Agregar componente nuevo</p>
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  <input placeholder="Nombre" value={newComponentName} onChange={(e) => setNewComponentName(e.target.value)}
+                    className="col-span-1 border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
+                  <input placeholder="Cant./prod" type="number" value={newComponentQty} onChange={(e) => setNewComponentQty(e.target.value)}
+                    className="border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
+                  <input placeholder="Minutos" type="number" value={newComponentTime} onChange={(e) => setNewComponentTime(e.target.value)}
+                    className="border border-slate-300 rounded-md px-2 py-1.5 text-xs" />
+                </div>
+                <button onClick={addComponent} className="w-full bg-emerald-600 text-white rounded-md py-1.5 text-xs font-medium hover:bg-emerald-700">
+                  Agregar
+                </button>
               </div>
-              <button onClick={addComponent} className="w-full bg-emerald-600 text-white rounded-md py-1.5 text-xs font-medium hover:bg-emerald-700">
-                Agregar
-              </button>
-            </div>
+            )}
 
             <button onClick={() => setModalSector(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
               Cerrar
