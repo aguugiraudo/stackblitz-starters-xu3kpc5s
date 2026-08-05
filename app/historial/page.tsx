@@ -27,6 +27,7 @@ export default function HistorialPage() {
   const [hoursSummary, setHoursSummary] = useState<{ estimadas: number; reales: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const [expandedSectors, setExpandedSectors] = useState<Record<string, boolean>>({})
 
   async function fetchOrders() {
     setLoading(true)
@@ -52,6 +53,7 @@ export default function HistorialPage() {
   async function openDetail(order: any) {
     setSelected(order)
     setLoadingDetail(true)
+    setExpandedSectors({})
 
     const { data: tasksData } = await supabase
       .from('operator_daily_tasks')
@@ -81,6 +83,24 @@ export default function HistorialPage() {
     setSelected(null)
     setDetailTasks([])
     setHoursSummary(null)
+    setExpandedSectors({})
+  }
+
+  function toggleSector(sectorId: string) {
+    setExpandedSectors((prev) => ({ ...prev, [sectorId]: !prev[sectorId] }))
+  }
+
+  // Agrupa las tareas del detalle por sector, en el orden de secuencia de planta
+  function groupedBySector() {
+    const groups: Record<string, { sectorId: string; sectorName: string; sequenceNo: number; tasks: any[] }> = {}
+    detailTasks.forEach((t: any) => {
+      const sectorId = t.sector_id
+      const sectorName = t.sectors?.name || 'Sin sector'
+      const sequenceNo = t.sectors?.sequence_no ?? 999
+      if (!groups[sectorId]) groups[sectorId] = { sectorId, sectorName, sequenceNo, tasks: [] }
+      groups[sectorId].tasks.push(t)
+    })
+    return Object.values(groups).sort((a, b) => a.sequenceNo - b.sequenceNo)
   }
 
   if (loading) return <main className="p-6 text-slate-500">Cargando...</main>
@@ -198,20 +218,56 @@ export default function HistorialPage() {
               <p className="text-sm text-slate-400">No hay tareas registradas para esta OP.</p>
             ) : (
               <div className="space-y-2">
-                {detailTasks.map((t: any) => (
-                  <div key={t.id} className="border border-slate-200 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                    <div>
-                      <p className="text-xs text-slate-400">{shortDate(t.plan_date)} — {t.sectors?.name}{t.components?.name ? ` — ${t.components.name}` : ''}</p>
-                      <p className="text-sm text-slate-700 font-medium">{t.operators?.full_name}</p>
-                      {t.notes && <p className="text-xs text-slate-500 italic">"{t.notes}"</p>}
+                {groupedBySector().map((group) => {
+                  const isOpen = !!expandedSectors[group.sectorId]
+                  const allClosed = group.tasks.every((t) => t.actual_quantity != null)
+                  const totalProg = group.tasks.reduce((s, t) => s + t.target_quantity, 0)
+                  const totalReal = group.tasks.reduce((s, t) => s + (t.actual_quantity ?? 0), 0)
+                  const operatorNames = Array.from(new Set(group.tasks.map((t) => t.operators?.full_name).filter(Boolean)))
+
+                  return (
+                    <div key={group.sectorId} className="border border-slate-200 rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => toggleSector(group.sectorId)}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 text-left"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-slate-400 text-xs w-3 shrink-0">{isOpen ? '▾' : '▸'}</span>
+                          <span className="text-sm font-medium text-slate-700 truncate">{group.sectorName}</span>
+                          <span className="text-xs text-slate-400 shrink-0">
+                            {operatorNames.length === 1 ? operatorNames[0] : `${operatorNames.length} operarios`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 text-xs">
+                          <span className={allClosed ? 'text-slate-600' : 'text-amber-600'}>
+                            Prog: <strong>{totalProg}</strong> — Real: <strong>{allClosed ? totalReal : 'sin cerrar'}</strong>
+                          </span>
+                        </div>
+                      </button>
+
+                      {isOpen && (
+                        <div className="divide-y divide-slate-100">
+                          {group.tasks.map((t: any) => (
+                            <div key={t.id} className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                              <div>
+                                <p className="text-xs text-slate-400">
+                                  {shortDate(t.plan_date)}{t.components?.name ? ` — ${t.components.name}` : ''}
+                                </p>
+                                <p className="text-sm text-slate-700 font-medium">{t.operators?.full_name}</p>
+                                {t.notes && <p className="text-xs text-slate-500 italic">"{t.notes}"</p>}
+                              </div>
+                              <div className="text-sm text-slate-600 shrink-0">
+                                Programado: <strong>{t.target_quantity}</strong> — Real: <strong className={t.actual_quantity == null ? 'text-amber-600' : 'text-slate-700'}>
+                                  {t.actual_quantity != null ? t.actual_quantity : 'sin cerrar'}
+                                </strong>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-sm text-slate-600 shrink-0">
-                      Programado: <strong>{t.target_quantity}</strong> — Real: <strong className={t.actual_quantity == null ? 'text-amber-600' : 'text-slate-700'}>
-                        {t.actual_quantity != null ? t.actual_quantity : 'sin cerrar'}
-                      </strong>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
