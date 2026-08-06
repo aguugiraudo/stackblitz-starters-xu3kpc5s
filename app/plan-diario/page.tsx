@@ -130,42 +130,51 @@ export default function PlanDiarioPage() {
     return all.reduce((max, t) => (t.plan_date > max ? t.plan_date : max), all[0].plan_date)
   }
 
-  function cumulativeUpTo(orderId: string, date: string, inclusive: boolean) {
+  // Real acumulado (%) de una orden hasta una fecha dada (inclusive o estrictamente anterior)
+  function cumulativeRealUpTo(orderId: string, date: string, inclusive: boolean) {
     const totalWeight = weightByOrder[orderId]
     const all = allTasksByOrder[orderId] || []
     const relevant = all.filter((t) => inclusive ? t.plan_date <= date : t.plan_date < date)
-    if (!totalWeight || relevant.length === 0) return { prog: null as number | null, real: null as number | null, hasAny: false }
+    if (!totalWeight || relevant.length === 0) return { real: null as number | null, hasAny: false }
 
-    const progMin = relevant.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
     const closed = relevant.filter((t) => t.actual_quantity != null)
     const realMin = closed.reduce((s, t) => s + t.actual_quantity * (t.standard_time_minutes || 0), 0)
 
     return {
-      prog: Math.round((progMin / totalWeight) * 1000) / 10,
       real: closed.length > 0 ? Math.round((realMin / totalWeight) * 1000) / 10 : null,
       hasAny: true,
     }
   }
 
   function dayResult(orderId: string, date: string) {
+    // No mostrar nada más allá de la última fecha con una tarea real cargada para esta OP
     const maxTaskDate = maxTaskDateFor(orderId)
     if (!maxTaskDate || date > maxTaskDate) return null
 
-    const upToToday = cumulativeUpTo(orderId, date, true)
+    const totalWeight = weightByOrder[orderId]
+    const upToToday = cumulativeRealUpTo(orderId, date, true)
     if (!upToToday.hasAny) return null
 
-    const beforeToday = cumulativeUpTo(orderId, date, false)
+    const beforeToday = cumulativeRealUpTo(orderId, date, false)
     const todaysTasks = (allTasksByOrder[orderId] || []).filter((t) => t.plan_date === date)
     const allClosedToday = todaysTasks.length > 0 && todaysTasks.every((t) => t.actual_quantity != null)
 
+    // Incremento de objetivo de HOY (solo lo programado para este día, en % del peso total)
+    const todayTargetMin = todaysTasks.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
+    const todayTargetPct = totalWeight ? (todayTargetMin / totalWeight) * 100 : 0
+
+    // El objetivo del día parte del REAL acumulado hasta ayer, no del objetivo teórico acumulado.
+    // Así "Obj." nunca arrastra el déficit (o exceso) de días anteriores.
+    const baseRealPct = beforeToday.real ?? 0
+    const progPct = Math.round((baseRealPct + todayTargetPct) * 10) / 10
+
     let cumplimiento: number | null = null
     if (allClosedToday) {
-      const targetIncrement = (upToToday.prog ?? 0) - (beforeToday.prog ?? 0)
       const realIncrement = (upToToday.real ?? 0) - (beforeToday.real ?? 0)
-      cumplimiento = targetIncrement > 0 ? Math.round((realIncrement / targetIncrement) * 1000) / 10 : null
+      cumplimiento = todayTargetPct > 0 ? Math.round((realIncrement / todayTargetPct) * 1000) / 10 : null
     }
 
-    return { progPct: upToToday.prog, realPct: upToToday.real, cumplimiento }
+    return { progPct, realPct: upToToday.real, cumplimiento }
   }
 
   function plantDayResult(date: string) {

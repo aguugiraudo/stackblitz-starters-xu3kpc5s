@@ -51,6 +51,10 @@ export default function RendimientoPage() {
   const [dayModalInfo, setDayModalInfo] = useState<{ operatorId: string; operatorName: string; date: string } | null>(null)
   const [exceptionReason, setExceptionReason] = useState('')
 
+  const [bonusSettingsId, setBonusSettingsId] = useState<string | null>(null)
+  const [targetPercent, setTargetPercent] = useState(95)
+  const [editingTarget, setEditingTarget] = useState(false)
+
   const [year, monthNum] = monthValue.split('-').map(Number)
   const monthIndex = monthNum - 1
   const mondays = mondaysInMonth(year, monthIndex)
@@ -77,6 +81,12 @@ export default function RendimientoPage() {
       .gte('week_monday', rangeStart)
       .lte('week_monday', rangeEnd)
     setExceptions(excData || [])
+
+    const { data: settingsData } = await supabase.from('bonus_settings').select('*').limit(1).maybeSingle()
+    if (settingsData) {
+      setBonusSettingsId(settingsData.id)
+      setTargetPercent(Number(settingsData.target_percent))
+    }
 
     setLoading(false)
   }
@@ -120,11 +130,23 @@ export default function RendimientoPage() {
     return naturalWeekStatus(operatorId, monday)
   }
 
-  async function saveBonus(operatorId: string, value: string) {
+  async function saveMonthlyBonus(operatorId: string, value: string) {
     const parsed = parseFloat(value || '0')
     await supabase.from('operators').update({ weekly_bonus_amount: parsed }).eq('id', operatorId)
     setEditingBonus(null)
     fetchAll()
+  }
+
+  async function saveTargetPercent(value: string) {
+    const parsed = parseFloat(value || '0')
+    setTargetPercent(parsed)
+    setEditingTarget(false)
+    if (bonusSettingsId) {
+      await supabase.from('bonus_settings').update({ target_percent: parsed }).eq('id', bonusSettingsId)
+    } else {
+      const { data } = await supabase.from('bonus_settings').insert({ target_percent: parsed }).select().single()
+      if (data) setBonusSettingsId(data.id)
+    }
   }
 
   async function approveException() {
@@ -193,7 +215,7 @@ export default function RendimientoPage() {
   return (
     <main className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Rendimiento de Operarios</h1>
-      <p className="text-sm text-slate-500 mb-1">Cumplimiento semanal y cálculo de premio por producción.</p>
+      <p className="text-sm text-slate-500 mb-1">Premio mensual por cumplimiento de producción.</p>
       <p className="text-xs text-slate-400 mb-6">Click en el nombre para ver el mes completo. Click en una semana o un día para ver el detalle.</p>
 
       {!canEdit && (
@@ -202,19 +224,43 @@ export default function RendimientoPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 mb-6">
-        <label className="text-sm font-medium text-slate-700">Mes</label>
-        <input type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}
-          className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+      <div className="flex items-center gap-6 mb-6 flex-wrap">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-700">Mes</label>
+          <input type="month" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}
+            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm" />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-700">% objetivo para cobrar</label>
+          {canEdit ? (
+            editingTarget ? (
+              <input
+                type="number"
+                defaultValue={targetPercent}
+                autoFocus
+                onBlur={(e) => saveTargetPercent(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                className="w-20 text-center rounded-md border border-slate-300 py-1"
+              />
+            ) : (
+              <button onClick={() => setEditingTarget(true)} className="text-sm font-semibold text-slate-700 border border-slate-300 rounded-md px-3 py-1 hover:bg-slate-50">
+                {targetPercent}%
+              </button>
+            )
+          ) : (
+            <span className="text-sm font-semibold text-slate-700">{targetPercent}%</span>
+          )}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm bg-white">
         <table className="text-sm border-collapse table-fixed w-full">
           <colgroup>
             <col style={{ width: '190px' }} />
-            {mondays.map((_, i) => <col key={i} style={{ width: '92px' }} />)}
-            <col style={{ width: '95px' }} />
-            <col style={{ width: '110px' }} />
+            {mondays.map((_, i) => <col key={i} style={{ width: '70px' }} />)}
+            <col style={{ width: '100px' }} />
+            <col style={{ width: '120px' }} />
             <col style={{ width: '120px' }} />
           </colgroup>
           <thead>
@@ -222,20 +268,22 @@ export default function RendimientoPage() {
               <th className="p-3 font-medium text-left">Operario</th>
               {mondays.map((m, i) => (
                 <th key={i} className="p-2 font-medium text-center border-l border-slate-700">
-                  <div>Semana {i + 1}</div>
+                  <div>Sem. {i + 1}</div>
                   <div className="text-[10px] font-normal text-slate-400">{shortDate(toISO(m))}</div>
                 </th>
               ))}
-              <th className="p-3 font-medium text-center border-l border-slate-700">Semanas OK</th>
-              <th className="p-3 font-medium text-center">Premio/sem.</th>
-              <th className="p-3 font-medium text-center">Premio mes</th>
+              <th className="p-3 font-medium text-center border-l border-slate-700">Cumplim. mes</th>
+              <th className="p-3 font-medium text-center">Premio mensual</th>
+              <th className="p-3 font-medium text-center">Premio a cobrar</th>
             </tr>
           </thead>
           <tbody>
             {operators.map((op) => {
               const weekStatuses = mondays.map((m) => effectiveWeekStatus(op.id, m))
-              const metCount = weekStatuses.filter((s) => s === 'met' || s === 'exception').length
-              const totalBonus = metCount * Number(op.weekly_bonus_amount || 0)
+              const monthSum = monthSummary(op.id)
+              const cumplimiento = monthSum.cumplimientoPct
+              const meetsTarget = cumplimiento != null && cumplimiento >= targetPercent
+              const premioACobrar = meetsTarget ? Number(op.weekly_bonus_amount || 0) : 0
 
               return (
                 <tr key={op.id} className="border-t border-slate-100">
@@ -247,11 +295,15 @@ export default function RendimientoPage() {
                   {mondays.map((m, i) => (
                     <td key={i} className="p-2 text-center border-l border-slate-100">
                       <button onClick={() => { setWeekModalInfo({ operatorId: op.id, operatorName: op.full_name, monday: m }); setExceptionReason('') }}>
-                        {statusBadge(weekStatuses[i])}
+                        {statusBadge(weekStatuses[i], true, 'sm')}
                       </button>
                     </td>
                   ))}
-                  <td className="p-3 text-center font-semibold text-slate-700 border-l border-slate-100">{metCount} / {mondays.length}</td>
+                  <td className={`p-3 text-center border-l border-slate-100 font-semibold ${
+                    cumplimiento == null ? 'text-slate-300' : meetsTarget ? 'text-emerald-600' : 'text-rose-600'
+                  }`}>
+                    {cumplimiento != null ? `${cumplimiento}%` : '—'}
+                  </td>
                   <td className="p-3 text-center">
                     {canEdit ? (
                       editingBonus === op.id ? (
@@ -259,9 +311,9 @@ export default function RendimientoPage() {
                           type="number"
                           defaultValue={op.weekly_bonus_amount}
                           autoFocus
-                          onBlur={(e) => saveBonus(op.id, e.target.value)}
+                          onBlur={(e) => saveMonthlyBonus(op.id, e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                          className="w-20 text-center rounded-md border border-slate-300 py-1"
+                          className="w-24 text-center rounded-md border border-slate-300 py-1"
                         />
                       ) : (
                         <button onClick={() => setEditingBonus(op.id)} className="text-slate-600 hover:underline">
@@ -274,8 +326,8 @@ export default function RendimientoPage() {
                       </span>
                     )}
                   </td>
-                  <td className="p-3 text-center font-semibold text-emerald-700">
-                    ${totalBonus.toLocaleString('es-AR')}
+                  <td className={`p-3 text-center font-semibold ${meetsTarget ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    ${premioACobrar.toLocaleString('es-AR')}
                   </td>
                 </tr>
               )
@@ -285,12 +337,15 @@ export default function RendimientoPage() {
       </div>
 
       <div className="flex flex-wrap gap-4 mt-4 text-xs text-slate-600">
-        <span className="flex items-center gap-1.5">{statusBadge('met', false, 'sm')} Semana cumplida</span>
+        <span className="flex items-center gap-1.5">{statusBadge('met', false, 'sm')} Día cumplido</span>
         <span className="flex items-center gap-1.5">{statusBadge('exception', false, 'sm')} Excepción aprobada</span>
         <span className="flex items-center gap-1.5">{statusBadge('not-met', false, 'sm')} No cumplida</span>
         <span className="flex items-center gap-1.5">{statusBadge('pending', false, 'sm')} Falta cerrar días</span>
         <span className="flex items-center gap-1.5">{statusBadge('no-work', false, 'sm')} Sin tareas esa semana</span>
       </div>
+      <p className="text-xs text-slate-400 mt-2">
+        El premio ya no se calcula por semana: es un único premio mensual que se cobra completo si el Cumplimiento del mes llega al {targetPercent}% o más. Las semanas siguen mostrándose como resumen visual del avance.
+      </p>
 
       {weekModalInfo && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setWeekModalInfo(null)}>
@@ -373,7 +428,7 @@ export default function RendimientoPage() {
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-400">Cumplimiento del mes</p>
-                <p className={`text-xl font-semibold ${monthSum.cumplimientoPct == null ? 'text-slate-400' : monthSum.cumplimientoPct >= 100 ? 'text-emerald-600' : monthSum.cumplimientoPct >= 70 ? 'text-amber-600' : 'text-rose-600'}`}>
+                <p className={`text-xl font-semibold ${monthSum.cumplimientoPct == null ? 'text-slate-400' : monthSum.cumplimientoPct >= targetPercent ? 'text-emerald-600' : 'text-rose-600'}`}>
                   {monthSum.cumplimientoPct != null ? `${monthSum.cumplimientoPct}%` : '—'}
                 </p>
               </div>
@@ -381,12 +436,18 @@ export default function RendimientoPage() {
                 <p className="text-xs text-slate-400">Horas objetivo / reales</p>
                 <p className="text-xl font-semibold text-slate-700">{monthSum.objetivoHoras} / {monthSum.realHoras}</p>
               </div>
-              <div className="bg-emerald-50 rounded-lg p-3">
-                <p className="text-xs text-emerald-600">Premio del mes</p>
-                <p className="text-xl font-semibold text-emerald-700">
-                  ${(monthSum.weeksMet * Number(monthModalOperator.weekly_bonus_amount || 0)).toLocaleString('es-AR')}
+              <div className={`rounded-lg p-3 ${monthSum.cumplimientoPct != null && monthSum.cumplimientoPct >= targetPercent ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+                <p className={`text-xs ${monthSum.cumplimientoPct != null && monthSum.cumplimientoPct >= targetPercent ? 'text-emerald-600' : 'text-slate-400'}`}>Premio del mes</p>
+                <p className={`text-xl font-semibold ${monthSum.cumplimientoPct != null && monthSum.cumplimientoPct >= targetPercent ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  {monthSum.cumplimientoPct != null && monthSum.cumplimientoPct >= targetPercent
+                    ? `$${Number(monthModalOperator.weekly_bonus_amount || 0).toLocaleString('es-AR')}`
+                    : '$0'}
                 </p>
-                <p className="text-[11px] text-emerald-500">{monthSum.weeksMet} de {monthSum.totalWeeks} semanas</p>
+                <p className="text-[11px] text-slate-400">
+                  {monthSum.cumplimientoPct != null && monthSum.cumplimientoPct >= targetPercent
+                    ? `Superó el objetivo de ${targetPercent}%`
+                    : `No llegó al objetivo de ${targetPercent}%`}
+                </p>
               </div>
             </div>
 
