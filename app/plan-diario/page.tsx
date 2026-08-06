@@ -44,10 +44,13 @@ function shortDate(iso: string) {
 export default function PlanDiarioPage() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [orders, setOrders] = useState<any[]>([])
+  const [sectors, setSectors] = useState<any[]>([])
   const [weightByOrder, setWeightByOrder] = useState<Record<string, number>>({})
+  const [progressDetailRows, setProgressDetailRows] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
   const [allTasksByOrder, setAllTasksByOrder] = useState<Record<string, any[]>>({})
   const [loading, setLoading] = useState(true)
+  const [orderDetailModal, setOrderDetailModal] = useState<{ order: any; date: string } | null>(null)
 
   const monday = getMondayOfWeek(weekOffset)
   const weekdayDates = weekDates(monday)
@@ -56,6 +59,9 @@ export default function PlanDiarioPage() {
 
   async function fetchAll() {
     setLoading(true)
+
+    const { data: sectorsData } = await supabase.from('sectors').select('*').order('sequence_no')
+    setSectors(sectorsData || [])
 
     const { data: taskData } = await supabase
       .from('operator_daily_tasks')
@@ -92,8 +98,9 @@ export default function PlanDiarioPage() {
     if (orderIds.length > 0) {
       const { data: progressData } = await supabase
         .from('order_progress_detail')
-        .select('order_id, minutes_required')
+        .select('order_id, sector_id, minutes_required, quantity_required, quantity_completed, standard_time_minutes, target_type, component_id, component_name')
         .in('order_id', orderIds)
+      setProgressDetailRows(progressData || [])
 
       const weights: Record<string, number> = {}
       ;(progressData || []).forEach((r: any) => {
@@ -103,7 +110,7 @@ export default function PlanDiarioPage() {
 
       const { data: allTaskData } = await supabase
         .from('operator_daily_tasks')
-        .select('order_id, plan_date, target_quantity, actual_quantity, standard_time_minutes')
+        .select('order_id, sector_id, component_id, plan_date, target_quantity, actual_quantity, standard_time_minutes')
         .in('order_id', orderIds)
 
       const grouped: Record<string, any[]> = {}
@@ -113,6 +120,7 @@ export default function PlanDiarioPage() {
       })
       setAllTasksByOrder(grouped)
     } else {
+      setProgressDetailRows([])
       setAllTasksByOrder({})
     }
 
@@ -209,9 +217,47 @@ export default function PlanDiarioPage() {
     return 'text-rose-600 font-semibold'
   }
 
+  // Desglose por sector de una orden, tal como estaba a una fecha puntual:
+  // requerido total, completado real ACUMULADO hasta esa fecha, pendiente, y lo programado justo ese día.
+  function sectorBreakdownFor(orderId: string, date: string) {
+    const allRows = progressDetailRows.filter((r) => r.order_id === orderId)
+    const orderTasks = allTasksByOrder[orderId] || []
+
+    // Agrupar los renglones de requerido por sector (puede haber varios por componente)
+    const bySector: Record<string, { sectorId: string; sectorName: string; sequenceNo: number; requiredQty: number }> = {}
+    allRows.forEach((r) => {
+      const sector = sectors.find((s) => s.id === r.sector_id)
+      const sectorName = sector?.name || 'Sin sector'
+      const sequenceNo = sector?.sequence_no ?? 999
+      if (!bySector[r.sector_id]) bySector[r.sector_id] = { sectorId: r.sector_id, sectorName, sequenceNo, requiredQty: 0 }
+      bySector[r.sector_id].requiredQty += r.quantity_required
+    })
+
+    return Object.values(bySector)
+      .sort((a, b) => a.sequenceNo - b.sequenceNo)
+      .map((s) => {
+        const tasksUpToDate = orderTasks.filter((t) => t.sector_id === s.sectorId && t.plan_date <= date)
+        const completedQty = tasksUpToDate
+          .filter((t) => t.actual_quantity != null)
+          .reduce((sum, t) => sum + t.actual_quantity, 0)
+        const todayTasks = orderTasks.filter((t) => t.sector_id === s.sectorId && t.plan_date === date)
+        const programmedTodayQty = todayTasks.reduce((sum, t) => sum + t.target_quantity, 0)
+        const pendingQty = Math.max(0, s.requiredQty - completedQty)
+        return {
+          ...s,
+          completedQty,
+          pendingQty,
+          programmedTodayQty,
+          pctDone: s.requiredQty > 0 ? Math.round((completedQty / s.requiredQty) * 1000) / 10 : null,
+        }
+      })
+  }
+
   if (loading) return <main className="p-6 text-slate-500">Cargando...</main>
 
   const weekCumplimiento = weekResult()
+  const modalBreakdown = orderDetailModal ? sectorBreakdownFor(orderDetailModal.order.id, orderDetailModal.date) : []
+  const modalDayResult = orderDetailModal ? dayResult(orderDetailModal.order.id, orderDetailModal.date) : null
 
   return (
     <main className="p-6 max-w-full mx-auto">
@@ -325,7 +371,17 @@ export default function PlanDiarioPage() {
                         isToday ? 'border-slate-100 bg-slate-50/60' : 'border-slate-100'
                       }`}>
                         <div className="grid grid-cols-3">
-                          <span className="text-center py-2 text-slate-600 text-xs">{r?.progPct != null ? `${r.progPct}%` : '—'}</span>
+                          {r?.progPct != null ? (
+                            <button
+                              onClick={() => setOrderDetailModal({ order, date: d })}
+                              className="text-center py-2 text-slate-600 text-xs hover:bg-slate-100 hover:text-blue-700 hover:underline decoration-dotted transition-colors"
+                              title="Ver desglose por sector"
+                            >
+                              {r.progPct}%
+                            </button>
+                          ) : (
+                            <span className="text-center py-2 text-slate-600 text-xs">—</span>
+                          )}
                           <span className="text-center py-2 text-slate-600 text-xs">{r?.realPct != null ? `${r.realPct}%` : '—'}</span>
                           <span className={`text-center py-2 text-xs ${cumplimientoColor(r?.cumplimiento ?? null)}`}>
                             {r?.cumplimiento != null ? `${r.cumplimiento}%` : '—'}
@@ -338,6 +394,75 @@ export default function PlanDiarioPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* MODAL: desglose por sector de la OP, tal como estaba en la fecha clickeada */}
+      {orderDetailModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setOrderDetailModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-1">
+              <div>
+                <h3 className="font-semibold text-slate-800 text-lg">
+                  #{orderDetailModal.order.order_number} — {orderDetailModal.order.products?.name}
+                </h3>
+                <p className="text-sm text-slate-500">Estado al {shortDate(orderDetailModal.date)}</p>
+              </div>
+              <button onClick={() => setOrderDetailModal(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+            </div>
+
+            {modalDayResult && (
+              <div className="grid grid-cols-3 gap-3 my-4">
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Objetivo</p>
+                  <p className="text-lg font-semibold text-slate-700">{modalDayResult.progPct != null ? `${modalDayResult.progPct}%` : '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Real</p>
+                  <p className="text-lg font-semibold text-slate-700">{modalDayResult.realPct != null ? `${modalDayResult.realPct}%` : '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Cumplimiento del día</p>
+                  <p className={`text-lg font-semibold ${cumplimientoColor(modalDayResult.cumplimiento)}`}>
+                    {modalDayResult.cumplimiento != null ? `${modalDayResult.cumplimiento}%` : '—'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-400 mb-2">
+              Para llegar al {modalDayResult?.progPct != null ? `${modalDayResult.progPct}%` : 'objetivo'}, esto es lo que hace falta o ya se hizo, sector por sector:
+            </p>
+
+            <div className="space-y-2">
+              {modalBreakdown.map((s) => (
+                <div key={s.sectorId} className="border border-slate-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-medium text-slate-700">{s.sectorName}</p>
+                    <p className={`text-xs font-semibold ${
+                      s.pctDone == null ? 'text-slate-300' : s.pctDone >= 100 ? 'text-emerald-600' : s.pctDone > 0 ? 'text-amber-600' : 'text-slate-400'
+                    }`}>
+                      {s.pctDone != null ? `${s.pctDone}%` : '—'}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs text-slate-500">
+                    <span>Requerido: <strong className="text-slate-700">{s.requiredQty}</strong></span>
+                    <span>Completado: <strong className="text-slate-700">{s.completedQty}</strong></span>
+                    <span>Pendiente: <strong className={s.pendingQty > 0 ? 'text-rose-600' : 'text-emerald-600'}>{s.pendingQty}</strong></span>
+                  </div>
+                  {s.programmedTodayQty > 0 && (
+                    <p className="text-[11px] text-blue-600 mt-1.5 bg-blue-50 rounded px-2 py-1 inline-block">
+                      Programado para el {shortDate(orderDetailModal.date)}: {s.programmedTodayQty} u.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button onClick={() => setOrderDetailModal(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
+              Cerrar
+            </button>
+          </div>
         </div>
       )}
     </main>

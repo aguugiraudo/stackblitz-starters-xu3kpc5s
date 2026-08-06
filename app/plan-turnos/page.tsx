@@ -53,6 +53,8 @@ export default function PlanTurnosPage() {
   const [clockEnd, setClockEnd] = useState('')
   const [clockResult, setClockResult] = useState<{ type: 'ok' | 'more' | 'less'; diffPerUnit: number; newMinutes: number } | null>(null)
 
+  const [editingTarget, setEditingTarget] = useState<string | null>(null)
+
   const [loading, setLoading] = useState(true)
 
   async function fetchStatic() {
@@ -254,6 +256,23 @@ export default function PlanTurnosPage() {
   async function deleteTask(taskId: string) {
     if (!confirm('¿Eliminar esta tarea asignada?')) return
     await supabase.from('operator_daily_tasks').delete().eq('id', taskId)
+    fetchTasksAndAvailability(); fetchStatic()
+  }
+
+  // Edita la cantidad programada de una tarea ya asignada. Al bajarla (ej. de 10 a 8),
+  // la diferencia queda automáticamente disponible para programar de nuevo: "lo ya programado"
+  // se calcula siempre sumando el target_quantity ACTUAL de las tareas, no el original.
+  async function saveTargetQuantity(task: any, value: string) {
+    const qty = Math.max(0, parseInt(value || '0', 10))
+    if (qty === task.target_quantity) { setEditingTarget(null); return }
+    const newHours = task.standard_time_minutes
+      ? Math.round(((qty * task.standard_time_minutes) / 60) * 100) / 100
+      : task.hours_assigned
+    const { error } = await supabase.from('operator_daily_tasks')
+      .update({ target_quantity: qty, hours_assigned: newHours })
+      .eq('id', task.id)
+    if (error) { alert('Error al editar la cantidad: ' + error.message); return }
+    setEditingTarget(null)
     fetchTasksAndAvailability(); fetchStatic()
   }
 
@@ -565,7 +584,28 @@ export default function PlanTurnosPage() {
                               <div className="text-xs text-slate-400">#{t.orders?.order_number}</div>
                               <div className="text-slate-700">{t.orders?.products?.name}</div>
                             </td>
-                            <td className="py-2 text-center font-medium">{t.target_quantity}</td>
+                            <td className="py-2 text-center font-medium">
+                              {canEdit && editingTarget === t.id ? (
+                                <input
+                                  type="number"
+                                  defaultValue={t.target_quantity}
+                                  autoFocus
+                                  min={0}
+                                  onBlur={(e) => saveTargetQuantity(t, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                  className="w-14 text-center rounded-md border border-blue-300 py-1"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => canEdit && setEditingTarget(t.id)}
+                                  disabled={!canEdit}
+                                  title={canEdit ? 'Click para editar la cantidad programada' : undefined}
+                                  className={canEdit ? 'hover:underline decoration-dotted' : ''}
+                                >
+                                  {t.target_quantity}
+                                </button>
+                              )}
+                            </td>
                             <td className="py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input
@@ -618,7 +658,25 @@ export default function PlanTurnosPage() {
                           <div className="flex items-center gap-4 mb-2">
                             <div>
                               <p className="text-[10px] text-slate-400">Objetivo</p>
-                              <p className="text-sm font-semibold text-slate-700">{t.target_quantity}</p>
+                              {canEdit && editingTarget === t.id ? (
+                                <input
+                                  type="number"
+                                  defaultValue={t.target_quantity}
+                                  autoFocus
+                                  min={0}
+                                  onBlur={(e) => saveTargetQuantity(t, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                  className="w-14 text-center rounded-md border border-blue-300 py-1 text-sm"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => canEdit && setEditingTarget(t.id)}
+                                  disabled={!canEdit}
+                                  className={`text-sm font-semibold text-slate-700 ${canEdit ? 'hover:underline decoration-dotted' : ''}`}
+                                >
+                                  {t.target_quantity}
+                                </button>
+                              )}
                             </div>
                             <div>
                               <p className="text-[10px] text-slate-400">Real</p>
