@@ -159,13 +159,17 @@ export default function PlanDiarioPage() {
     const maxTaskDate = maxTaskDateFor(orderId)
     if (!maxTaskDate || date > maxTaskDate) return null
 
+    // Si este día puntual no tiene NINGUNA tarea asignada para esta OP, no mostrar nada
+    // (antes se repetía el valor del día anterior, dando la falsa impresión de que había algo programado ese día)
+    const todaysTasks = (allTasksByOrder[orderId] || []).filter((t) => t.plan_date === date)
+    if (todaysTasks.length === 0) return null
+
     const totalWeight = weightByOrder[orderId]
     const upToToday = cumulativeRealUpTo(orderId, date, true)
     if (!upToToday.hasAny) return null
 
     const beforeToday = cumulativeRealUpTo(orderId, date, false)
-    const todaysTasks = (allTasksByOrder[orderId] || []).filter((t) => t.plan_date === date)
-    const allClosedToday = todaysTasks.length > 0 && todaysTasks.every((t) => t.actual_quantity != null)
+    const allClosedToday = todaysTasks.every((t) => t.actual_quantity != null)
 
     // Incremento de objetivo de HOY (solo lo programado para este día, en % del peso total)
     const todayTargetMin = todaysTasks.reduce((s, t) => s + t.target_quantity * (t.standard_time_minutes || 0), 0)
