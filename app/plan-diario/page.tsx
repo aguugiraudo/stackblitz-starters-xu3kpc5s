@@ -218,7 +218,9 @@ export default function PlanDiarioPage() {
   }
 
   // Desglose por sector de una orden, tal como estaba a una fecha puntual:
-  // requerido total, completado real ACUMULADO hasta esa fecha, pendiente, y lo programado justo ese día.
+  // - realActual: lo que ya está hecho de verdad (real acumulado hasta esa fecha inclusive)
+  // - targetEndOfDay: a dónde tiene que llegar al FINAL de ese día (real de días anteriores + lo programado ese día)
+  // Esto viene directo de Turnos y Operarios: son los mismos target_quantity / actual_quantity que se cargan ahí.
   function sectorBreakdownFor(orderId: string, date: string) {
     const allRows = progressDetailRows.filter((r) => r.order_id === orderId)
     const orderTasks = allTasksByOrder[orderId] || []
@@ -236,19 +238,28 @@ export default function PlanDiarioPage() {
     return Object.values(bySector)
       .sort((a, b) => a.sequenceNo - b.sequenceNo)
       .map((s) => {
-        const tasksUpToDate = orderTasks.filter((t) => t.sector_id === s.sectorId && t.plan_date <= date)
-        const completedQty = tasksUpToDate
-          .filter((t) => t.actual_quantity != null)
+        const beforeToday = orderTasks
+          .filter((t) => t.sector_id === s.sectorId && t.plan_date < date && t.actual_quantity != null)
           .reduce((sum, t) => sum + t.actual_quantity, 0)
+
         const todayTasks = orderTasks.filter((t) => t.sector_id === s.sectorId && t.plan_date === date)
         const programmedTodayQty = todayTasks.reduce((sum, t) => sum + t.target_quantity, 0)
-        const pendingQty = Math.max(0, s.requiredQty - completedQty)
+        const realTodayClosed = todayTasks.filter((t) => t.actual_quantity != null).reduce((sum, t) => sum + t.actual_quantity, 0)
+        const allTodayClosed = todayTasks.length > 0 && todayTasks.every((t) => t.actual_quantity != null)
+
+        const realActual = beforeToday + realTodayClosed
+        const targetEndOfDay = beforeToday + programmedTodayQty
+        const pendingQty = Math.max(0, s.requiredQty - realActual)
+
         return {
           ...s,
-          completedQty,
-          pendingQty,
+          beforeToday,
           programmedTodayQty,
-          pctDone: s.requiredQty > 0 ? Math.round((completedQty / s.requiredQty) * 1000) / 10 : null,
+          realActual,
+          targetEndOfDay,
+          pendingQty,
+          allTodayClosed,
+          hasActivityToday: todayTasks.length > 0,
         }
       })
   }
@@ -431,32 +442,56 @@ export default function PlanDiarioPage() {
             )}
 
             <p className="text-xs text-slate-400 mb-2">
-              Para llegar al {modalDayResult?.progPct != null ? `${modalDayResult.progPct}%` : 'objetivo'}, esto es lo que hace falta o ya se hizo, sector por sector:
+              Real vs. lo que tiene que haber al final de este día, sector por sector (se alimenta de lo cargado en Turnos y Operarios):
             </p>
 
             <div className="space-y-2">
-              {modalBreakdown.map((s) => (
-                <div key={s.sectorId} className="border border-slate-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium text-slate-700">{s.sectorName}</p>
-                    <p className={`text-xs font-semibold ${
-                      s.pctDone == null ? 'text-slate-300' : s.pctDone >= 100 ? 'text-emerald-600' : s.pctDone > 0 ? 'text-amber-600' : 'text-slate-400'
-                    }`}>
-                      {s.pctDone != null ? `${s.pctDone}%` : '—'}
-                    </p>
+              {modalBreakdown.map((s) => {
+                const pct = s.targetEndOfDay > 0 ? Math.round((s.realActual / s.targetEndOfDay) * 1000) / 10 : null
+                return (
+                  <div key={s.sectorId} className="border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-slate-700">{s.sectorName}</p>
+                      {!s.hasActivityToday && (
+                        <span className="text-[11px] text-slate-400">Sin actividad este día</span>
+                      )}
+                    </div>
+
+                    {s.hasActivityToday || s.targetEndOfDay > 0 ? (
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="flex-1 bg-slate-50 rounded-lg p-2.5 text-center">
+                          <p className="text-[10px] text-slate-400 mb-0.5">Real</p>
+                          <p className="text-xl font-bold text-slate-700">{s.realActual}</p>
+                        </div>
+                        <span className="text-slate-300 text-lg">/</span>
+                        <div className="flex-1 bg-slate-50 rounded-lg p-2.5 text-center">
+                          <p className="text-[10px] text-slate-400 mb-0.5">Programado (fin del día)</p>
+                          <p className="text-xl font-bold text-slate-700">{s.targetEndOfDay}</p>
+                        </div>
+                        <div className="flex-1 rounded-lg p-2.5 text-center bg-slate-50">
+                          <p className="text-[10px] text-slate-400 mb-0.5">Cumpl.</p>
+                          <p className={`text-xl font-bold ${
+                            pct == null ? 'text-slate-300' : pct >= 100 ? 'text-emerald-600' : pct >= 70 ? 'text-amber-600' : 'text-rose-600'
+                          }`}>
+                            {pct != null ? `${pct}%` : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
+                      <span>Ya hecho antes de hoy: <strong className="text-slate-700">{s.beforeToday}</strong></span>
+                      {s.programmedTodayQty > 0 && (
+                        <span>Programado agregar hoy: <strong className="text-blue-700">{s.programmedTodayQty}</strong></span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
+                      <span>Requerido total de la OP: <strong className="text-slate-700">{s.requiredQty}</strong></span>
+                      <span>Pendiente: <strong className={s.pendingQty > 0 ? 'text-rose-600' : 'text-emerald-600'}>{s.pendingQty}</strong></span>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs text-slate-500">
-                    <span>Requerido: <strong className="text-slate-700">{s.requiredQty}</strong></span>
-                    <span>Completado: <strong className="text-slate-700">{s.completedQty}</strong></span>
-                    <span>Pendiente: <strong className={s.pendingQty > 0 ? 'text-rose-600' : 'text-emerald-600'}>{s.pendingQty}</strong></span>
-                  </div>
-                  {s.programmedTodayQty > 0 && (
-                    <p className="text-[11px] text-blue-600 mt-1.5 bg-blue-50 rounded px-2 py-1 inline-block">
-                      Programado para el {shortDate(orderDetailModal.date)}: {s.programmedTodayQty} u.
-                    </p>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
 
             <button onClick={() => setOrderDetailModal(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
