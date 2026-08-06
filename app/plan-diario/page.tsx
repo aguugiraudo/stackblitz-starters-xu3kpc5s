@@ -441,57 +441,38 @@ export default function PlanDiarioPage() {
               </div>
             )}
 
-            <p className="text-xs text-slate-400 mb-2">
-              Real vs. lo que tiene que haber al final de este día, sector por sector (se alimenta de lo cargado en Turnos y Operarios):
+            <p className="text-xs text-slate-400 mb-3">
+              Estado actual / estado programado para terminar hoy, por sector (viene de Turnos y Operarios):
             </p>
 
-            <div className="space-y-2">
-              {modalBreakdown.map((s) => {
-                const pct = s.targetEndOfDay > 0 ? Math.round((s.realActual / s.targetEndOfDay) * 1000) / 10 : null
-                return (
-                  <div key={s.sectorId} className="border border-slate-200 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-slate-700">{s.sectorName}</p>
-                      {!s.hasActivityToday && (
-                        <span className="text-[11px] text-slate-400">Sin actividad este día</span>
-                      )}
-                    </div>
-
-                    {s.hasActivityToday || s.targetEndOfDay > 0 ? (
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="flex-1 bg-slate-50 rounded-lg p-2.5 text-center">
-                          <p className="text-[10px] text-slate-400 mb-0.5">Real</p>
-                          <p className="text-xl font-bold text-slate-700">{s.realActual}</p>
-                        </div>
-                        <span className="text-slate-300 text-lg">/</span>
-                        <div className="flex-1 bg-slate-50 rounded-lg p-2.5 text-center">
-                          <p className="text-[10px] text-slate-400 mb-0.5">Programado (fin del día)</p>
-                          <p className="text-xl font-bold text-slate-700">{s.targetEndOfDay}</p>
-                        </div>
-                        <div className="flex-1 rounded-lg p-2.5 text-center bg-slate-50">
-                          <p className="text-[10px] text-slate-400 mb-0.5">Cumpl.</p>
-                          <p className={`text-xl font-bold ${
-                            pct == null ? 'text-slate-300' : pct >= 100 ? 'text-emerald-600' : pct >= 70 ? 'text-amber-600' : 'text-rose-600'
-                          }`}>
-                            {pct != null ? `${pct}%` : '—'}
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
-                      <span>Ya hecho antes de hoy: <strong className="text-slate-700">{s.beforeToday}</strong></span>
-                      {s.programmedTodayQty > 0 && (
-                        <span>Programado agregar hoy: <strong className="text-blue-700">{s.programmedTodayQty}</strong></span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
-                      <span>Requerido total de la OP: <strong className="text-slate-700">{s.requiredQty}</strong></span>
-                      <span>Pendiente: <strong className={s.pendingQty > 0 ? 'text-rose-600' : 'text-emerald-600'}>{s.pendingQty}</strong></span>
-                    </div>
-                  </div>
-                )
-              })}
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-left">
+                    {modalBreakdown.map((s) => (
+                      <th key={s.sectorId} className="p-2 font-medium text-center whitespace-nowrap">{s.sectorName}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {modalBreakdown.map((s) => {
+                      const pillClass =
+                        s.realActual > s.targetEndOfDay ? 'bg-rose-200 text-rose-800' :
+                        s.realActual === s.targetEndOfDay && s.targetEndOfDay > 0 ? 'bg-emerald-200 text-emerald-800' :
+                        s.realActual > 0 ? 'bg-amber-200 text-amber-800' :
+                        'bg-slate-100 text-slate-400'
+                      return (
+                        <td key={s.sectorId} className="p-3 text-center">
+                          <span className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 font-semibold whitespace-nowrap ${pillClass}`}>
+                            {s.realActual} / {s.targetEndOfDay}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             <button onClick={() => setOrderDetailModal(null)} className="mt-4 w-full bg-slate-800 text-white rounded-md py-2 text-sm font-medium hover:bg-slate-900">
