@@ -362,11 +362,15 @@ export default function CatalogoProductosPage() {
                       )}
                     </td>
                     <td className="py-3 text-right">
-                      {hasComponents && (
+                      {hasComponents ? (
                         <button onClick={() => setModalSector({ id: sector.id, name: sector.name })} className="text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50">
                           Ver detalle
                         </button>
-                      )}
+                      ) : canEdit ? (
+                        <button onClick={() => setModalSector({ id: sector.id, name: sector.name })} className="text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors px-2 py-1 rounded-md border border-dashed border-slate-300 hover:bg-slate-50">
+                          + Desglosar en componentes
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 )
