@@ -68,14 +68,25 @@ export default function DashboardPage() {
   const totalRevenue = rows.reduce((s, r) => s + (r.price != null ? r.actual_quantity * Number(r.price) : 0), 0)
   const anyPriceSet = rows.some((r) => r.price != null)
 
-  const totalServiceHours = serviceRows.reduce((s, r) => s + Number(r.hours_assigned || 0), 0)
-  const totalServiceQty = serviceRows.reduce((s, r) => s + (r.quantity_services || 0), 0)
+  // Servicios (categoría 'servicio') y 5S (categoría '5s') se muestran por separado
+  const serviceOnlyRows = serviceRows.filter((r) => r.category !== '5s')
+  const fiveSRows = serviceRows.filter((r) => r.category === '5s')
+
+  const totalServiceHours = serviceOnlyRows.reduce((s, r) => s + Number(r.hours_assigned || 0), 0)
+  const totalServiceQty = serviceOnlyRows.reduce((s, r) => s + (r.quantity_services || 0), 0)
   const bySectorServices: Record<string, { hours: number; qty: number }> = {}
-  serviceRows.forEach((r) => {
+  serviceOnlyRows.forEach((r) => {
     const sec = r.sectors?.name || 'Sin sector'
     if (!bySectorServices[sec]) bySectorServices[sec] = { hours: 0, qty: 0 }
     bySectorServices[sec].hours += Number(r.hours_assigned || 0)
     bySectorServices[sec].qty += r.quantity_services || 0
+  })
+
+  const total5SHours = fiveSRows.reduce((s, r) => s + Number(r.hours_assigned || 0), 0)
+  const bySector5S: Record<string, number> = {}
+  fiveSRows.forEach((r) => {
+    const sec = r.sectors?.name || 'Sin sector'
+    bySector5S[sec] = (bySector5S[sec] || 0) + Number(r.hours_assigned || 0)
   })
 
   const categories = Object.keys(byCategory).sort((a, b) => byCategory[b].qty - byCategory[a].qty)
@@ -139,7 +150,7 @@ export default function DashboardPage() {
           })}
 
           {/* Categoría SERVICIOS — horas, no unidades */}
-          {serviceRows.length > 0 && (
+          {serviceOnlyRows.length > 0 && (
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
@@ -155,6 +166,28 @@ export default function DashboardPage() {
                   <div key={sector} className="flex items-center justify-between text-sm">
                     <span className="text-slate-600">{sector}</span>
                     <span className="text-slate-500">{info.hours} hs{info.qty > 0 ? ` — ${info.qty} servicios` : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Categoría 5S — horas dedicadas a mejora continua */}
+          {fiveSRows.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                  5S
+                </span>
+                <div className="text-right">
+                  <p className="text-lg font-semibold text-slate-800">{total5SHours} hs</p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                {Object.entries(bySector5S).map(([sector, hours]) => (
+                  <div key={sector} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{sector}</span>
+                    <span className="text-slate-500">{hours} hs</span>
                   </div>
                 ))}
               </div>
