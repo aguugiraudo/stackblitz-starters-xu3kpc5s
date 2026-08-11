@@ -18,6 +18,7 @@ function formatDateShort(iso: string) {
 }
 
 const SERVICE_VALUE = '__SERVICIO__'
+const FIVE_S_VALUE = '__5S__'
 
 export default function PlanTurnosPage() {
   const { role } = useAuth()
@@ -135,12 +136,14 @@ export default function PlanTurnosPage() {
     : operators
 
   const isService = fOrder === SERVICE_VALUE
+  const isFiveS = fOrder === FIVE_S_VALUE
+  const isSpecial = isService || isFiveS
 
   const ordersForSector = fSector
     ? orders.filter((o) => progressRows.some((r) => r.order_id === o.id && r.sector_id === fSector && r.quantity_completed < r.quantity_required))
     : []
 
-  const rowsForOrderSector = (fSector && fOrder && !isService)
+  const rowsForOrderSector = (fSector && fOrder && !isSpecial)
     ? progressRows.filter((r) => r.order_id === fOrder && r.sector_id === fSector)
     : []
   const needsComponent = rowsForOrderSector.length > 1 || (rowsForOrderSector[0]?.target_type === 'component')
@@ -190,20 +193,21 @@ export default function PlanTurnosPage() {
       return
     }
 
-    if (isService) {
+    if (isService || isFiveS) {
       if (!fServiceHours) {
-        alert('Completá las horas dedicadas al servicio.')
+        alert(isFiveS ? 'Completá las horas dedicadas a 5S.' : 'Completá las horas dedicadas al servicio.')
         return
       }
       const { error } = await supabase.from('service_tasks').insert({
         operator_id: fOperator,
         plan_date: planDate,
         sector_id: fSector,
+        category: isFiveS ? '5s' : 'servicio',
         hours_assigned: parseFloat(fServiceHours),
-        quantity_services: fServiceQty ? parseInt(fServiceQty, 10) : null,
+        quantity_services: (!isFiveS && fServiceQty) ? parseInt(fServiceQty, 10) : null,
         notes: fServiceNotes || null,
       })
-      if (error) { alert('Error al asignar el servicio: ' + error.message); return }
+      if (error) { alert('Error al asignar: ' + error.message); return }
     } else {
       if (!fQuantity) {
         alert('Completá la cantidad a programar.')
@@ -477,11 +481,14 @@ export default function PlanTurnosPage() {
               onChange={(e) => { setFOrder(e.target.value); setFComponent('') }}
               disabled={!fSector}
               className={`border rounded-md px-2 py-1.5 text-sm disabled:bg-slate-50 min-w-0 truncate w-full ${
-                isService ? 'border-blue-400 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300'
+                isService ? 'border-blue-400 bg-blue-50 text-blue-700 font-medium' :
+                isFiveS ? 'border-emerald-400 bg-emerald-50 text-emerald-700 font-medium' :
+                'border-slate-300'
               }`}
             >
-              <option value="">OP / Servicio...</option>
+              <option value="">OP / Servicio / 5S...</option>
               <option value={SERVICE_VALUE}>🔧 Servicio (sin OP)</option>
+              <option value={FIVE_S_VALUE}>🧹 5S (mejora continua, sin OP)</option>
               {ordersForSector.length > 0 && (
                 <optgroup label="Órdenes pendientes">
                   {ordersForSector.map((o) => <option key={o.id} value={o.id}>#{o.order_number} — {o.products?.name}</option>)}
@@ -489,16 +496,17 @@ export default function PlanTurnosPage() {
               )}
             </select>
 
-            {!isService && needsComponent ? (
+            {!isSpecial && needsComponent ? (
               <select value={fComponent} onChange={(e) => setFComponent(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm min-w-0 truncate w-full">
                 <option value="">Componente...</option>
                 {rowsForOrderSector.map((r) => <option key={r.component_id} value={r.component_id}>{r.component_name}</option>)}
               </select>
-            ) : !isService ? <div className="hidden md:block" /> : null}
+            ) : !isSpecial ? <div className="hidden md:block" /> : null}
 
-            {isService ? (
+            {isSpecial ? (
               <input placeholder="Horas dedicadas" type="number" step={0.5} value={fServiceHours}
-                onChange={(e) => setFServiceHours(e.target.value)} className="border border-blue-300 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+                onChange={(e) => setFServiceHours(e.target.value)}
+                className={`rounded-md px-2 py-1.5 text-sm w-full min-w-0 border ${isFiveS ? 'border-emerald-300' : 'border-blue-300'}`} />
             ) : (
               <div className="min-w-0">
                 <input placeholder="Cantidad a programar" type="number" value={fQuantity}
@@ -511,16 +519,18 @@ export default function PlanTurnosPage() {
             )}
           </div>
 
-          {isService && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
-              <input placeholder="Cantidad de servicios (opcional)" type="number" value={fServiceQty}
-                onChange={(e) => setFServiceQty(e.target.value)} className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+          {isSpecial && (
+            <div className={`grid gap-3 mb-2 ${isService ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {isService && (
+                <input placeholder="Cantidad de servicios (opcional)" type="number" value={fServiceQty}
+                  onChange={(e) => setFServiceQty(e.target.value)} className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+              )}
               <input placeholder="Obs. (opcional)" value={fServiceNotes} onChange={(e) => setFServiceNotes(e.target.value)}
-                className="border border-blue-200 rounded-md px-2 py-1.5 text-sm w-full min-w-0" />
+                className={`rounded-md px-2 py-1.5 text-sm w-full min-w-0 border ${isFiveS ? 'border-emerald-200' : 'border-blue-200'}`} />
             </div>
           )}
 
-          {!isService && taskHours != null && (
+          {!isSpecial && taskHours != null && (
             <p className="text-xs text-slate-500 mb-2">
               Esta tarea representa <strong className="text-slate-700">{taskHours} hs</strong>.
               {availableForSelected != null && (
@@ -530,7 +540,7 @@ export default function PlanTurnosPage() {
               )}
             </p>
           )}
-          {isService && fServiceHours && availableForSelected != null && (
+          {isSpecial && fServiceHours && availableForSelected != null && (
             <p className="text-xs text-slate-500 mb-2">
               Total si confirmás: <strong className={hoursSoFar + parseFloat(fServiceHours || '0') > availableForSelected ? 'text-rose-600' : 'text-slate-700'}>
                 {Math.round((hoursSoFar + parseFloat(fServiceHours || '0')) * 100) / 100} / {availableForSelected} hs
@@ -539,9 +549,9 @@ export default function PlanTurnosPage() {
           )}
 
           <button onClick={handleAssign} className={`mt-2 w-full sm:w-auto text-white px-4 py-2 rounded-md text-sm font-medium ${
-            isService ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+            isService ? 'bg-blue-600 hover:bg-blue-700' : isFiveS ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-emerald-600 hover:bg-emerald-700'
           }`}>
-            {isService ? 'Asignar servicio' : 'Asignar tarea'}
+            {isService ? 'Asignar servicio' : isFiveS ? 'Asignar 5S' : 'Asignar tarea'}
           </button>
         </div>
       )}
@@ -709,16 +719,37 @@ export default function PlanTurnosPage() {
                   </>
                 )}
 
-                {group.services.length > 0 && (
-                  <div>
+                {group.services.filter((s: any) => s.category !== '5s').length > 0 && (
+                  <div className="mb-2">
                     <p className="text-xs font-medium text-blue-600 mb-1.5">Servicios</p>
                     <div className="flex flex-col gap-2">
-                      {group.services.map((s: any) => (
+                      {group.services.filter((s: any) => s.category !== '5s').map((s: any) => (
                         <div key={s.id} className="flex items-center justify-between gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                           <div className="min-w-0">
                             <p className="text-sm text-slate-700">
                               {s.sectors?.name} — <strong>{s.hours_assigned} hs</strong>
                               {s.quantity_services != null && ` — ${s.quantity_services} servicios`}
+                            </p>
+                            {s.notes && <p className="text-xs text-slate-500 italic">"{s.notes}"</p>}
+                          </div>
+                          {canEdit && (
+                            <button onClick={() => deleteServiceTask(s.id)} className="text-xs text-rose-500 hover:underline shrink-0">Eliminar</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {group.services.filter((s: any) => s.category === '5s').length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-emerald-600 mb-1.5">5S</p>
+                    <div className="flex flex-col gap-2">
+                      {group.services.filter((s: any) => s.category === '5s').map((s: any) => (
+                        <div key={s.id} className="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm text-slate-700">
+                              {s.sectors?.name} — <strong>{s.hours_assigned} hs</strong>
                             </p>
                             {s.notes && <p className="text-xs text-slate-500 italic">"{s.notes}"</p>}
                           </div>
