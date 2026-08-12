@@ -58,6 +58,11 @@ export default function Home() {
 
   const [pendingManualComplete, setPendingManualComplete] = useState<{ id: string; order_number: string; avance: number | null } | null>(null)
 
+  // Desglose Láser: se abre después de crear una OP
+  const [laserModal, setLaserModal] = useState<{ productId: string; productName: string; qty: number; loteId: string | null } | null>(null)
+  const [laserEspesores, setLaserEspesores] = useState<{ id: string | null; espesor_mm: string; nidos: { id: string | null; minutos: string }[] }[]>([])
+  const [laserLoading, setLaserLoading] = useState(false)
+
   const sensors = useSensors(useSensor(PointerSensor))
 
   async function fetchAll() {
@@ -101,8 +106,111 @@ export default function Home() {
       status: 'pending', priority_rank: maxRank + 1,
     })
     if (error) { alert('Error al crear la OP: ' + error.message); return }
+
+    const createdProductName = productSearch
+    const createdQty = parseInt(quantity, 10)
     setOrderNumber(''); setProductId(''); setProductSearch(''); setClientName(''); setQuantity(''); setNotes('')
     fetchAll()
+    openLaserBreakdown(productId, createdProductName, createdQty)
+  }
+
+  // Abre el desglose láser para Producto+Cantidad: si ya existe uno guardado, lo trae precargado; si no, arranca vacío.
+  async function openLaserBreakdown(prodId: string, prodName: string, qty: number) {
+    setLaserLoading(true)
+    setLaserModal({ productId: prodId, productName: prodName, qty, loteId: null })
+    setLaserEspesores([])
+
+    const { data: lote } = await supabase
+      .from('laser_lotes').select('id').eq('product_id', prodId).eq('lote_qty', qty).maybeSingle()
+
+    if (lote) {
+      const { data: espesores } = await supabase
+        .from('laser_espesores').select('*').eq('laser_lote_id', lote.id).order('espesor_mm')
+      const loaded = []
+      for (const esp of espesores || []) {
+        const { data: nidos } = await supabase
+          .from('laser_nidos').select('*').eq('laser_espesor_id', esp.id).order('numero')
+        loaded.push({
+          id: esp.id,
+          espesor_mm: String(esp.espesor_mm),
+          nidos: (nidos || []).map((n: any) => ({ id: n.id, minutos: String(n.standard_time_minutes) })),
+        })
+      }
+      setLaserEspesores(loaded)
+      setLaserModal((prev) => prev && { ...prev, loteId: lote.id })
+    } else {
+      setLaserEspesores([{ id: null, espesor_mm: '', nidos: [{ id: null, minutos: '' }] }])
+    }
+    setLaserLoading(false)
+  }
+
+  function addEspesorRow() {
+    setLaserEspesores((prev) => [...prev, { id: null, espesor_mm: '', nidos: [{ id: null, minutos: '' }] }])
+  }
+
+  function removeEspesorRow(index: number) {
+    setLaserEspesores((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateEspesorMm(index: number, value: string) {
+    setLaserEspesores((prev) => prev.map((e, i) => (i === index ? { ...e, espesor_mm: value } : e)))
+  }
+
+  function addNidoRow(espesorIndex: number) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: [...e.nidos, { id: null, minutos: '' }] } : e
+    ))
+  }
+
+  function removeNidoRow(espesorIndex: number, nidoIndex: number) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: e.nidos.filter((_, ni) => ni !== nidoIndex) } : e
+    ))
+  }
+
+  function updateNidoMinutos(espesorIndex: number, nidoIndex: number, value: string) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: e.nidos.map((n, ni) => (ni === nidoIndex ? { ...n, minutos: value } : n)) } : e
+    ))
+  }
+
+  async function saveLaserBreakdown() {
+    if (!laserModal) return
+    setLaserLoading(true)
+
+    let loteId = laserModal.loteId
+    if (!loteId) {
+      const { data, error } = await supabase.from('laser_lotes')
+        .insert({ product_id: laserModal.productId, lote_qty: laserModal.qty })
+        .select().single()
+      if (error) { alert('Error al guardar el lote: ' + error.message); setLaserLoading(false); return }
+      loteId = data.id
+    }
+
+    // Reemplazo completo: se borran los espesores existentes (arrastra los nidos) y se recargan desde el formulario
+    await supabase.from('laser_espesores').delete().eq('laser_lote_id', loteId)
+
+    for (const esp of laserEspesores) {
+      if (!esp.espesor_mm) continue
+      const { data: espData, error: espErr } = await supabase.from('laser_espesores')
+        .insert({ laser_lote_id: loteId, espesor_mm: parseFloat(esp.espesor_mm) })
+        .select().single()
+      if (espErr) continue
+
+      const nidosToInsert = esp.nidos
+        .filter((n) => n.minutos)
+        .map((n, i) => ({ laser_espesor_id: espData.id, numero: i + 1, standard_time_minutes: parseFloat(n.minutos) }))
+      if (nidosToInsert.length > 0) {
+        await supabase.from('laser_nidos').insert(nidosToInsert)
+      }
+    }
+
+    setLaserLoading(false)
+    setLaserModal(null)
+  }
+
+  function skipLaserBreakdown() {
+    setLaserModal(null)
   }
 
   async function handleDragEnd(event: any) {
@@ -117,6 +225,7 @@ export default function Home() {
     }
   }
 
+  // Ahora, en vez de completar directo, abre el cartel de confirmación
   async function askComplete(order: any) {
     const { data } = await supabase
       .from('order_weighted_progress')
@@ -327,6 +436,89 @@ export default function Home() {
               </button>
               <button onClick={confirmManualComplete} className="flex-1 bg-emerald-600 text-white rounded-md py-2 text-sm font-medium hover:bg-emerald-700">
                 Sí, completar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Desglose Láser al crear una OP nueva */}
+      {laserModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
+            <div className="mb-4">
+              <h3 className="font-semibold text-slate-800 text-lg">Desglose Láser</h3>
+              <p className="text-sm text-slate-500">
+                {laserModal.productName} — lote de {laserModal.qty} u.
+              </p>
+              {laserModal.loteId && (
+                <p className="text-xs text-blue-600 bg-blue-50 rounded px-2 py-1 mt-2 inline-block">
+                  Ya existía un desglose guardado para este producto y esta cantidad — lo trajimos precargado, podés editarlo.
+                </p>
+              )}
+            </div>
+
+            {laserLoading ? (
+              <p className="text-sm text-slate-400">Cargando...</p>
+            ) : (
+              <div className="space-y-4">
+                {laserEspesores.map((esp, espIndex) => (
+                  <div key={espIndex} className="border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <label className="text-xs text-slate-500 shrink-0">Espesor</label>
+                      <input
+                        type="number" step={0.1} placeholder="Ej: 3.2"
+                        value={esp.espesor_mm}
+                        onChange={(e) => updateEspesorMm(espIndex, e.target.value)}
+                        className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-24"
+                      />
+                      <span className="text-xs text-slate-400">mm</span>
+                      <button onClick={() => removeEspesorRow(espIndex)} className="ml-auto text-xs text-rose-500 hover:underline">
+                        Quitar espesor
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-slate-500 mb-2">Nidos (una chapa por nido, con su tiempo de corte)</p>
+                    <div className="space-y-2">
+                      {esp.nidos.map((nido, nidoIndex) => (
+                        <div key={nidoIndex} className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 w-14 shrink-0">Nido {nidoIndex + 1}</span>
+                          <input
+                            type="number" placeholder="Minutos"
+                            value={nido.minutos}
+                            onChange={(e) => updateNidoMinutos(espIndex, nidoIndex, e.target.value)}
+                            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-28"
+                          />
+                          <span className="text-xs text-slate-400">min</span>
+                          {nido.minutos && (
+                            <span className="text-xs text-slate-400 italic">
+                              → "Nido {nidoIndex + 1} ({nido.minutos} min)"
+                            </span>
+                          )}
+                          <button onClick={() => removeNidoRow(espIndex, nidoIndex)} className="ml-auto text-xs text-rose-500 hover:underline shrink-0">
+                            Quitar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={() => addNidoRow(espIndex)} className="mt-2 text-xs text-blue-600 hover:underline">
+                      + Agregar nido (otra chapa) a este espesor
+                    </button>
+                  </div>
+                ))}
+
+                <button onClick={addEspesorRow} className="w-full text-sm text-slate-600 border border-dashed border-slate-300 rounded-md py-2 hover:bg-slate-50">
+                  + Agregar otro espesor
+                </button>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-6">
+              <button onClick={skipLaserBreakdown} className="flex-1 border border-slate-300 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50">
+                Omitir por ahora
+              </button>
+              <button onClick={saveLaserBreakdown} disabled={laserLoading} className="flex-1 bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                Guardar desglose
               </button>
             </div>
           </div>
