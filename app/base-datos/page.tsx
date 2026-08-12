@@ -38,6 +38,13 @@ export default function CatalogoProductosPage() {
 
   const [timeHistoryModal, setTimeHistoryModal] = useState<{ catalogTimeId: string; entries: any[] } | null>(null)
 
+  const [laserLotes, setLaserLotes] = useState<any[]>([])
+  const [laserModalOpen, setLaserModalOpen] = useState(false)
+  const [laserModalLoteId, setLaserModalLoteId] = useState<string | null>(null)
+  const [laserModalQty, setLaserModalQty] = useState<number>(0)
+  const [laserEspesores, setLaserEspesores] = useState<{ id: string | null; espesor_mm: string; nidos: { id: string | null; minutos: string }[] }[]>([])
+  const [laserLoading, setLaserLoading] = useState(false)
+
   const [loading, setLoading] = useState(true)
 
   async function fetchOverview() {
@@ -77,12 +84,129 @@ export default function CatalogoProductosPage() {
     setSelectedProduct(p)
     setLoading(true)
     await fetchProductDetail(p.id)
+    await fetchLaserLotes(p.id)
     setLoading(false)
   }
 
   function backToMatrix() {
     setSelectedProduct(null)
+    setLaserLotes([])
     fetchOverview()
+  }
+
+  async function fetchLaserLotes(productId: string) {
+    const { data } = await supabase.from('laser_lotes').select('*').eq('product_id', productId).order('lote_qty')
+    setLaserLotes(data || [])
+  }
+
+  function openNewLaserLote() {
+    const input = prompt('Cantidad del lote (ej: 8)')
+    if (!input) return
+    const qty = parseInt(input, 10)
+    if (!qty || qty <= 0) { alert('Ingresá una cantidad válida.'); return }
+
+    const existing = laserLotes.find((l) => l.lote_qty === qty)
+    if (existing) { openExistingLaserLote(existing); return }
+
+    setLaserModalLoteId(null)
+    setLaserModalQty(qty)
+    setLaserEspesores([{ id: null, espesor_mm: '', nidos: [{ id: null, minutos: '' }] }])
+    setLaserModalOpen(true)
+  }
+
+  async function openExistingLaserLote(lote: any) {
+    setLaserLoading(true)
+    setLaserModalLoteId(lote.id)
+    setLaserModalQty(lote.lote_qty)
+    setLaserModalOpen(true)
+
+    const { data: espesores } = await supabase
+      .from('laser_espesores').select('*').eq('laser_lote_id', lote.id).order('espesor_mm')
+    const loaded = []
+    for (const esp of espesores || []) {
+      const { data: nidos } = await supabase
+        .from('laser_nidos').select('*').eq('laser_espesor_id', esp.id).order('numero')
+      loaded.push({
+        id: esp.id,
+        espesor_mm: String(esp.espesor_mm),
+        nidos: (nidos || []).map((n: any) => ({ id: n.id, minutos: String(n.standard_time_minutes) })),
+      })
+    }
+    setLaserEspesores(loaded.length > 0 ? loaded : [{ id: null, espesor_mm: '', nidos: [{ id: null, minutos: '' }] }])
+    setLaserLoading(false)
+  }
+
+  function addEspesorRow() {
+    setLaserEspesores((prev) => [...prev, { id: null, espesor_mm: '', nidos: [{ id: null, minutos: '' }] }])
+  }
+
+  function removeEspesorRow(index: number) {
+    setLaserEspesores((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateEspesorMm(index: number, value: string) {
+    setLaserEspesores((prev) => prev.map((e, i) => (i === index ? { ...e, espesor_mm: value } : e)))
+  }
+
+  function addNidoRow(espesorIndex: number) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: [...e.nidos, { id: null, minutos: '' }] } : e
+    ))
+  }
+
+  function removeNidoRow(espesorIndex: number, nidoIndex: number) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: e.nidos.filter((_, ni) => ni !== nidoIndex) } : e
+    ))
+  }
+
+  function updateNidoMinutos(espesorIndex: number, nidoIndex: number, value: string) {
+    setLaserEspesores((prev) => prev.map((e, i) =>
+      i === espesorIndex ? { ...e, nidos: e.nidos.map((n, ni) => (ni === nidoIndex ? { ...n, minutos: value } : n)) } : e
+    ))
+  }
+
+  async function saveLaserLote() {
+    if (!selectedProduct) return
+    setLaserLoading(true)
+
+    let loteId = laserModalLoteId
+    if (!loteId) {
+      const { data, error } = await supabase.from('laser_lotes')
+        .insert({ product_id: selectedProduct.id, lote_qty: laserModalQty })
+        .select().single()
+      if (error) { alert('Error al guardar el lote: ' + error.message); setLaserLoading(false); return }
+      loteId = data.id
+    }
+
+    await supabase.from('laser_espesores').delete().eq('laser_lote_id', loteId)
+
+    for (const esp of laserEspesores) {
+      if (!esp.espesor_mm) continue
+      const { data: espData, error: espErr } = await supabase.from('laser_espesores')
+        .insert({ laser_lote_id: loteId, espesor_mm: parseFloat(esp.espesor_mm) })
+        .select().single()
+      if (espErr) continue
+
+      const nidosToInsert = esp.nidos
+        .filter((n) => n.minutos)
+        .map((n, i) => ({ laser_espesor_id: espData.id, numero: i + 1, standard_time_minutes: parseFloat(n.minutos) }))
+      if (nidosToInsert.length > 0) {
+        await supabase.from('laser_nidos').insert(nidosToInsert)
+      }
+    }
+
+    setLaserLoading(false)
+    setLaserModalOpen(false)
+    fetchLaserLotes(selectedProduct.id)
+  }
+
+  async function deleteLaserLote() {
+    if (!laserModalLoteId) return
+    if (!confirm('¿Eliminar este lote completo, con todos sus espesores y nidos?')) return
+    await supabase.from('laser_lotes').delete().eq('id', laserModalLoteId)
+    setLaserModalOpen(false)
+    if (selectedProduct) fetchLaserLotes(selectedProduct.id)
   }
 
   const filteredProducts = search.length > 0
@@ -378,6 +502,33 @@ export default function CatalogoProductosPage() {
             </tbody>
           </table>
 
+          <div className="mt-8 pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-slate-700 text-sm">Desglose Láser</h3>
+              {canEdit && (
+                <button onClick={openNewLaserLote} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700">
+                  + Nuevo lote
+                </button>
+              )}
+            </div>
+            {laserLotes.length === 0 ? (
+              <p className="text-xs text-slate-400">Todavía no hay desgloses de Láser cargados para este producto.</p>
+            ) : (
+              <div className="space-y-2">
+                {laserLotes.map((lote) => (
+                  <button
+                    key={lote.id}
+                    onClick={() => openExistingLaserLote(lote)}
+                    className="w-full text-left flex items-center justify-between bg-slate-50 hover:bg-slate-100 rounded-lg px-3 py-2 text-sm transition-colors"
+                  >
+                    <span className="text-slate-700 font-medium">Lote de {lote.lote_qty} u.</span>
+                    <span className="text-xs text-slate-400">{canEdit ? 'Ver / editar →' : 'Ver →'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {canEdit && (
             <div className="mt-8 pt-4 border-t border-dashed border-rose-200">
               <p className="text-xs text-rose-400 mb-2">Zona de peligro</p>
@@ -545,6 +696,102 @@ export default function CatalogoProductosPage() {
                     </p>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: editar el desglose Láser de un lote (producto + cantidad) */}
+      {laserModalOpen && selectedProduct && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setLaserModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="font-semibold text-slate-800 text-lg">Desglose Láser</h3>
+                <p className="text-sm text-slate-500">{selectedProduct.name} — lote de {laserModalQty} u.</p>
+              </div>
+              <button onClick={() => setLaserModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+            </div>
+
+            {laserLoading ? (
+              <p className="text-sm text-slate-400">Cargando...</p>
+            ) : (
+              <div className="space-y-4">
+                {laserEspesores.map((esp, espIndex) => (
+                  <div key={espIndex} className="border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-3">
+                      <label className="text-xs text-slate-500 shrink-0">Espesor</label>
+                      <input
+                        type="number" step={0.1} placeholder="Ej: 3.2"
+                        value={esp.espesor_mm}
+                        onChange={(e) => updateEspesorMm(espIndex, e.target.value)}
+                        disabled={!canEdit}
+                        className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-24 disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                      <span className="text-xs text-slate-400">mm</span>
+                      {canEdit && (
+                        <button onClick={() => removeEspesorRow(espIndex)} className="ml-auto text-xs text-rose-500 hover:underline">
+                          Quitar espesor
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-500 mb-2">Nidos (una chapa por nido, con su tiempo de corte)</p>
+                    <div className="space-y-2">
+                      {esp.nidos.map((nido, nidoIndex) => (
+                        <div key={nidoIndex} className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 w-14 shrink-0">Nido {nidoIndex + 1}</span>
+                          <input
+                            type="number" placeholder="Minutos"
+                            value={nido.minutos}
+                            onChange={(e) => updateNidoMinutos(espIndex, nidoIndex, e.target.value)}
+                            disabled={!canEdit}
+                            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-28 disabled:bg-slate-50 disabled:text-slate-400"
+                          />
+                          <span className="text-xs text-slate-400">min</span>
+                          {nido.minutos && (
+                            <span className="text-xs text-slate-400 italic">
+                              → "Nido {nidoIndex + 1} ({nido.minutos} min)"
+                            </span>
+                          )}
+                          {canEdit && (
+                            <button onClick={() => removeNidoRow(espIndex, nidoIndex)} className="ml-auto text-xs text-rose-500 hover:underline shrink-0">
+                              Quitar
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {canEdit && (
+                      <button onClick={() => addNidoRow(espIndex)} className="mt-2 text-xs text-blue-600 hover:underline">
+                        + Agregar nido (otra chapa) a este espesor
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {canEdit && (
+                  <button onClick={addEspesorRow} className="w-full text-sm text-slate-600 border border-dashed border-slate-300 rounded-md py-2 hover:bg-slate-50">
+                    + Agregar otro espesor
+                  </button>
+                )}
+              </div>
+            )}
+
+            {canEdit && (
+              <div className="flex gap-2 mt-6">
+                {laserModalLoteId && (
+                  <button onClick={deleteLaserLote} className="text-xs text-rose-500 border border-rose-200 px-3 py-2 rounded-md hover:bg-rose-50">
+                    Eliminar lote
+                  </button>
+                )}
+                <button onClick={() => setLaserModalOpen(false)} className="flex-1 border border-slate-300 rounded-md py-2 text-sm text-slate-600 hover:bg-slate-50">
+                  Cancelar
+                </button>
+                <button onClick={saveLaserLote} disabled={laserLoading} className="flex-1 bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                  Guardar desglose
+                </button>
               </div>
             )}
           </div>
