@@ -18,6 +18,7 @@ export default function ControlGeneralPage() {
   const [operators, setOperators] = useState<any[]>([])
   const [modalInfo, setModalInfo] = useState<{ orderId: string; sectorId: string; productName: string; sectorName: string } | null>(null)
   const [pendingComplete, setPendingComplete] = useState<{ id: string; order_number: string } | null>(null)
+  const [dismissedCompleteIds, setDismissedCompleteIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   // Confirmación + trazabilidad de ediciones manuales
@@ -68,29 +69,31 @@ export default function ControlGeneralPage() {
     return totalRequired > 0 ? Math.round((totalCompleted / totalRequired) * 1000) / 10 : 0
   }
 
-  async function updateQuantity(rowId: string, newValue: number, orderId: string, orderNumber: string) {
+  // Revisa TODAS las OPs cada vez que se cargan datos frescos (sea por editar acá, o porque
+  // Turnos y Operarios cerró producción real en otro lado) y ofrece completar la primera que
+  // llegue al 100% y no haya sido descartada ("Todavía no") en esta sesión.
+  useEffect(() => {
+    if (!canEdit || loading || pendingComplete) return
+    const ready = orders.find((o) => avanceFor(o.id) >= 100 && !dismissedCompleteIds.has(o.id))
+    if (ready) {
+      setPendingComplete({ id: ready.id, order_number: ready.order_number })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, progressRows, loading])
+
+  async function updateQuantity(rowId: string, newValue: number, orderId: string) {
     const clamped = Math.max(0, newValue)
     const updatedRows = progressRows.map((r) => (r.id === rowId ? { ...r, quantity_completed: clamped } : r))
     setProgressRows(updatedRows)
 
     const { error } = await supabase.from('order_component_progress').update({ quantity_completed: clamped }).eq('id', rowId)
     if (error) { alert('Error al guardar: ' + error.message); return }
-
-    const rows = updatedRows.filter((r) => r.order_id === orderId)
-    const totalRequired = rows.reduce((sum, r) => sum + r.minutes_required, 0)
-    const totalCompleted = rows.reduce((sum, r) => sum + Math.min(r.quantity_completed, r.quantity_required) * r.standard_time_minutes, 0)
-    const pct = totalRequired > 0 ? (totalCompleted / totalRequired) * 100 : 0
-
-    // Pregunta siempre que el % ponderado llegue a 100, sin excepción
-    if (pct >= 100) {
-      setPendingComplete({ id: orderId, order_number: orderNumber })
-    }
   }
 
   // Se dispara al salir del input (onBlur). No guarda nada todavía: abre el cartel de confirmación.
-  function requestManualEdit(row: any, newValue: number, orderId: string, orderNumber: string, componentName?: string) {
+  function requestManualEdit(row: any, newValue: number, orderId: string, componentName?: string) {
     if (newValue === row.quantity_completed) return
-    setPendingManualEdit({ rowId: row.id, orderId, orderNumber, componentName, oldValue: row.quantity_completed, newValue })
+    setPendingManualEdit({ rowId: row.id, orderId, orderNumber: '', componentName, oldValue: row.quantity_completed, newValue })
     setEditOperatorId('')
     setEditNote('')
   }
@@ -105,7 +108,7 @@ export default function ControlGeneralPage() {
     if (!editOperatorId) { alert('Elegí qué operario realizó este avance.'); return }
     if (!editNote.trim()) { alert('Escribí una observación explicando este ajuste manual.'); return }
 
-    await updateQuantity(pendingManualEdit.rowId, pendingManualEdit.newValue, pendingManualEdit.orderId, pendingManualEdit.orderNumber)
+    await updateQuantity(pendingManualEdit.rowId, pendingManualEdit.newValue, pendingManualEdit.orderId)
 
     const { error } = await supabase.from('manual_progress_edits').insert({
       order_id: pendingManualEdit.orderId,
@@ -119,6 +122,7 @@ export default function ControlGeneralPage() {
 
     setPendingManualEdit(null)
     setResetCounter((c) => c + 1)
+    refreshOrdersAndProgress()
   }
 
   async function confirmComplete() {
@@ -129,6 +133,7 @@ export default function ControlGeneralPage() {
   }
 
   function dismissComplete() {
+    if (pendingComplete) setDismissedCompleteIds((prev) => new Set(prev).add(pendingComplete.id))
     setPendingComplete(null)
   }
 
@@ -184,7 +189,9 @@ export default function ControlGeneralPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order: any) => (
+              {orders.map((order: any) => {
+                const avance = avanceFor(order.id)
+                return (
                 <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50/60">
                   <td className="p-3 font-medium text-slate-700">#{order.order_number}</td>
                   <td className="p-3 text-slate-700">{order.products?.name}</td>
@@ -209,7 +216,7 @@ export default function ControlGeneralPage() {
                               defaultValue={rows[0].quantity_completed}
                               min={0}
                               onFocus={(e) => e.target.select()}
-                              onBlur={(e) => requestManualEdit(rows[0], parseInt(e.target.value || '0', 10), order.id, order.order_number)}
+                              onBlur={(e) => requestManualEdit(rows[0], parseInt(e.target.value || '0', 10), order.id)}
                               onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                               disabled={!canEdit}
                               className="w-10 text-center bg-transparent outline-none font-medium disabled:cursor-not-allowed"
@@ -226,9 +233,19 @@ export default function ControlGeneralPage() {
                       </td>
                     )
                   })}
-                  <td className="p-3 text-center font-semibold text-slate-800">{avanceFor(order.id)}%</td>
+                  <td className="p-3 text-center">
+                    <span className="font-semibold text-slate-800">{avance}%</span>
+                    {canEdit && avance >= 100 && (
+                      <button
+                        onClick={() => { setDismissedCompleteIds((prev) => { const s = new Set(prev); s.delete(order.id); return s }); setPendingComplete({ id: order.id, order_number: order.order_number }) }}
+                        className="block mx-auto mt-1 text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full hover:bg-emerald-700"
+                      >
+                        Completar OP
+                      </button>
+                    )}
+                  </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -257,7 +274,7 @@ export default function ControlGeneralPage() {
                         defaultValue={r.quantity_completed}
                         min={0}
                         onFocus={(e) => e.target.select()}
-                        onBlur={(e) => requestManualEdit(r, parseInt(e.target.value || '0', 10), modalInfo.orderId, '', r.component_name)}
+                        onBlur={(e) => requestManualEdit(r, parseInt(e.target.value || '0', 10), modalInfo.orderId, r.component_name)}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
                         disabled={!canEdit}
                         className="w-10 text-center bg-transparent outline-none font-medium disabled:cursor-not-allowed"
