@@ -22,7 +22,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 export default function DashboardPage() {
   const [monthValue, setMonthValue] = useState(currentMonthValue())
-  const [rows, setRows] = useState<any[]>([])
+  const [completedOrders, setCompletedOrders] = useState<any[]>([])
   const [serviceRows, setServiceRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -33,12 +33,16 @@ export default function DashboardPage() {
 
   async function fetchData() {
     setLoading(true)
+
+    // Producción del mes = OPs que llegaron a 100% y se completaron dentro de este mes.
+    // No cuenta avance parcial de OPs todavía en curso, aunque tengan algo cargado en Embalaje.
     const { data } = await supabase
-      .from('embalaje_production')
-      .select('*')
-      .gte('plan_date', monthStart)
-      .lt('plan_date', monthEnd)
-    setRows(data || [])
+      .from('orders')
+      .select('id, lot_quantity, completed_at, products(name, category, price)')
+      .eq('status', 'completed')
+      .gte('completed_at', monthStart)
+      .lt('completed_at', monthEnd)
+    setCompletedOrders(data || [])
 
     const { data: svc } = await supabase
       .from('service_tasks')
@@ -53,20 +57,22 @@ export default function DashboardPage() {
   useEffect(() => { fetchData() }, [monthValue])
 
   const byCategory: Record<string, { qty: number; revenue: number; hasPrice: boolean; products: Record<string, number> }> = {}
-  rows.forEach((r) => {
-    const cat = r.category || 'OTROS'
+  completedOrders.forEach((o) => {
+    const cat = o.products?.category || 'OTROS'
+    const productName = o.products?.name || 'Producto sin nombre'
+    const price = o.products?.price
     if (!byCategory[cat]) byCategory[cat] = { qty: 0, revenue: 0, hasPrice: false, products: {} }
-    byCategory[cat].qty += r.actual_quantity
-    if (r.price != null) {
-      byCategory[cat].revenue += r.actual_quantity * Number(r.price)
+    byCategory[cat].qty += o.lot_quantity
+    if (price != null) {
+      byCategory[cat].revenue += o.lot_quantity * Number(price)
       byCategory[cat].hasPrice = true
     }
-    byCategory[cat].products[r.product_name] = (byCategory[cat].products[r.product_name] || 0) + r.actual_quantity
+    byCategory[cat].products[productName] = (byCategory[cat].products[productName] || 0) + o.lot_quantity
   })
 
-  const totalUnits = rows.reduce((s, r) => s + r.actual_quantity, 0)
-  const totalRevenue = rows.reduce((s, r) => s + (r.price != null ? r.actual_quantity * Number(r.price) : 0), 0)
-  const anyPriceSet = rows.some((r) => r.price != null)
+  const totalUnits = completedOrders.reduce((s, o) => s + o.lot_quantity, 0)
+  const totalRevenue = completedOrders.reduce((s, o) => s + (o.products?.price != null ? o.lot_quantity * Number(o.products.price) : 0), 0)
+  const anyPriceSet = completedOrders.some((o) => o.products?.price != null)
 
   // Servicios (categoría 'servicio') y 5S (categoría '5s') se muestran por separado
   const serviceOnlyRows = serviceRows.filter((r) => r.category !== '5s')
@@ -96,7 +102,8 @@ export default function DashboardPage() {
   return (
     <main className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-semibold text-slate-800 mb-1">Dashboard</h1>
-      <p className="text-sm text-slate-500 mb-6">Producción del mes, por categoría de producto.</p>
+      <p className="text-sm text-slate-500 mb-1">Producción del mes, por categoría de producto.</p>
+      <p className="text-xs text-slate-400 mb-6">Solo cuenta OPs completadas al 100% dentro de este mes — no avance parcial de órdenes todavía en curso.</p>
 
       <div className="flex items-center gap-3 mb-6">
         <label className="text-sm font-medium text-slate-700">Mes</label>
@@ -117,7 +124,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {rows.length === 0 && serviceRows.length === 0 ? (
+      {completedOrders.length === 0 && serviceRows.length === 0 ? (
         <p className="text-slate-500">No hay actividad registrada este mes todavía.</p>
       ) : (
         <div className="space-y-4">

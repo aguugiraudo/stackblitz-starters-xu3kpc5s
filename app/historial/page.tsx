@@ -12,15 +12,25 @@ function shortDate(iso: string | null) {
   return iso.split('T')[0].split('-').reverse().join('/')
 }
 
-function leadDays(start: string | null, end: string | null) {
-  if (!start || !end) return null
-  const s = new Date(start)
-  const e = new Date(end.split('T')[0])
-  return Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24))
+// Días hábiles (sin sábados ni domingos) entre dos fechas
+function businessDaysBetween(startISO: string | null, endISO: string | null) {
+  if (!startISO || !endISO) return null
+  const start = new Date(startISO)
+  const end = new Date(endISO.split('T')[0])
+  if (end <= start) return 0
+  let count = 0
+  const d = new Date(start)
+  while (d < end) {
+    d.setDate(d.getDate() + 1)
+    const day = d.getDay()
+    if (day !== 0 && day !== 6) count++
+  }
+  return count
 }
 
 export default function HistorialPage() {
   const [orders, setOrders] = useState<any[]>([])
+  const [inicioByOrder, setInicioByOrder] = useState<Record<string, string>>({})
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<any | null>(null)
   const [detailTasks, setDetailTasks] = useState<any[]>([])
@@ -33,10 +43,43 @@ export default function HistorialPage() {
     setLoading(true)
     const { data } = await supabase
       .from('orders')
-      .select('id, order_number, client_name, lot_quantity, start_date, completed_at, notes, products(name)')
+      .select('id, order_number, client_name, lot_quantity, completed_at, notes, products(name)')
       .eq('status', 'completed')
       .order('completed_at', { ascending: false })
     setOrders(data || [])
+
+    const orderIds = (data || []).map((o: any) => o.id)
+    if (orderIds.length > 0) {
+      // Trae todas las tareas de estas OPs solo para calcular el Inicio real:
+      // la primera fecha con Real cargado en el sector de menor secuencia (ej. Corte Láser)
+      const { data: taskData } = await supabase
+        .from('operator_daily_tasks')
+        .select('order_id, plan_date, actual_quantity, sectors(sequence_no)')
+        .in('order_id', orderIds)
+
+      const minSeqByOrder: Record<string, number> = {}
+      ;(taskData || []).forEach((t: any) => {
+        const seq = t.sectors?.sequence_no
+        if (seq == null) return
+        if (minSeqByOrder[t.order_id] == null || seq < minSeqByOrder[t.order_id]) {
+          minSeqByOrder[t.order_id] = seq
+        }
+      })
+
+      const inicioMap: Record<string, string> = {}
+      ;(taskData || []).forEach((t: any) => {
+        const seq = t.sectors?.sequence_no
+        if (seq == null || t.actual_quantity == null) return
+        if (seq !== minSeqByOrder[t.order_id]) return
+        if (!inicioMap[t.order_id] || t.plan_date < inicioMap[t.order_id]) {
+          inicioMap[t.order_id] = t.plan_date
+        }
+      })
+      setInicioByOrder(inicioMap)
+    } else {
+      setInicioByOrder({})
+    }
+
     setLoading(false)
   }
 
@@ -132,7 +175,7 @@ export default function HistorialPage() {
                   <th className="p-3 font-medium text-center">Cantidad</th>
                   <th className="p-3 font-medium text-center">Inicio</th>
                   <th className="p-3 font-medium text-center">Fin</th>
-                  <th className="p-3 font-medium text-center">Días</th>
+                  <th className="p-3 font-medium text-center">Días hábiles</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,10 +185,10 @@ export default function HistorialPage() {
                     <td className="p-3 text-slate-700">{o.products?.name}</td>
                     <td className="p-3 text-slate-600">{o.client_name}</td>
                     <td className="p-3 text-center text-slate-600">{o.lot_quantity}</td>
-                    <td className="p-3 text-center text-slate-500">{shortDate(o.start_date)}</td>
+                    <td className="p-3 text-center text-slate-500">{shortDate(inicioByOrder[o.id] || null)}</td>
                     <td className="p-3 text-center text-slate-500">{shortDate(o.completed_at)}</td>
                     <td className="p-3 text-center font-medium text-slate-700">
-                      {leadDays(o.start_date, o.completed_at) ?? '—'}
+                      {businessDaysBetween(inicioByOrder[o.id] || null, o.completed_at) ?? '—'}
                     </td>
                   </tr>
                 ))}
@@ -162,9 +205,11 @@ export default function HistorialPage() {
                 <p className="text-sm font-medium text-slate-700 break-words">{o.products?.name}</p>
                 <p className="text-xs text-slate-500 mt-1">Cliente: {o.client_name} — Cantidad: {o.lot_quantity}</p>
                 <div className="flex justify-between text-xs text-slate-500 mt-2">
-                  <span>Inicio: {shortDate(o.start_date)}</span>
+                  <span>Inicio: {shortDate(inicioByOrder[o.id] || null)}</span>
                   <span>Fin: {shortDate(o.completed_at)}</span>
-                  <span className="font-medium text-slate-700">{leadDays(o.start_date, o.completed_at) ?? '—'} días</span>
+                  <span className="font-medium text-slate-700">
+                    {businessDaysBetween(inicioByOrder[o.id] || null, o.completed_at) ?? '—'} días hábiles
+                  </span>
                 </div>
               </button>
             ))}
@@ -187,15 +232,17 @@ export default function HistorialPage() {
             <div className="grid grid-cols-3 gap-3 my-4">
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-400">Inicio</p>
-                <p className="text-sm font-semibold text-slate-700">{shortDate(selected.start_date)}</p>
+                <p className="text-sm font-semibold text-slate-700">{shortDate(inicioByOrder[selected.id] || null)}</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
                 <p className="text-xs text-slate-400">Fin</p>
                 <p className="text-sm font-semibold text-slate-700">{shortDate(selected.completed_at)}</p>
               </div>
               <div className="bg-slate-50 rounded-lg p-3">
-                <p className="text-xs text-slate-400">Duración</p>
-                <p className="text-sm font-semibold text-slate-700">{leadDays(selected.start_date, selected.completed_at) ?? '—'} días</p>
+                <p className="text-xs text-slate-400">Duración (días hábiles)</p>
+                <p className="text-sm font-semibold text-slate-700">
+                  {businessDaysBetween(inicioByOrder[selected.id] || null, selected.completed_at) ?? '—'} días
+                </p>
               </div>
             </div>
 
